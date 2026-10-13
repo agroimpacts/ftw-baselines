@@ -1,5 +1,10 @@
 from ftw_tools.settings import FULL_DATA_COUNTRIES
 from ftw_tools.training.eval import expand_countries
+from ftw_tools.training.eval import compute_metrics_from_aggregated_data
+from ftw_tools.training.metrics import instance_statistics
+import numpy as np
+import pytest
+import torch
 
 
 def test_expand_countries_with_full_data():
@@ -57,3 +62,19 @@ def test_expand_countries_does_not_modify_original():
     assert original == original_copy
     assert result == original
     assert result is not original  # Should be a different object
+
+
+def test_offline_aggregation_uses_same_instance_statistics():
+    truth = np.array([[1, 1, 0], [0, 1, 0]], dtype=np.uint8)
+    pred = np.array([[1, 0, 0], [0, 1, 1]], dtype=np.uint8)
+    chip = instance_statistics(truth, pred)
+    scores = compute_metrics_from_aggregated_data(
+        torch.tensor(pred),
+        torch.tensor(truth),
+        [int(chip.tp)],
+        [int(chip.fp)],
+        [int(chip.fn)],
+        instance_stats=[chip],
+    )
+    for name, value in chip.scores().items():
+        assert scores[name] == pytest.approx(value, nan_ok=True)

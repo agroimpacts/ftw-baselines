@@ -37,7 +37,7 @@ from .losses import (
     logCoshDice,
     logCoshDiceCE,
 )
-from .metrics import get_object_level_metrics
+from .metrics import InstanceStatistics, instance_statistics
 from .utils import batch_corner_consensus_from_model
 
 
@@ -306,9 +306,7 @@ class CustomSemanticSegmentationTask(BaseTask):
             prefix="val/",
         )
 
-        self.val_tps = 0
-        self.val_fps = 0
-        self.val_fns = 0
+        self.val_instance_stats = InstanceStatistics()
         # consensus accumulators
         self.val_consensus_sum = 0.0
         self.val_consensus_count = 0
@@ -498,11 +496,10 @@ class CustomSemanticSegmentationTask(BaseTask):
 
         for i in range(y_hat.shape[0]):
             output = y_hat[i].argmax(dim=0).cpu().numpy().astype(np.uint8)
-            mask = y[i].cpu().numpy().astype(np.uint8)
-            tps, fps, fns = get_object_level_metrics(mask, output, iou_threshold=0.5)
-            self.val_tps += tps
-            self.val_fps += fps
-            self.val_fns += fns
+            mask = y[i].cpu().numpy()
+            self.val_instance_stats += instance_statistics(
+                mask, output, ignore_index=self.hparams["ignore_index"]
+            )
 
         if len(x.shape) == 4:
             # corner consensus metric accumulation (re-run model on corner crops to capture context truncation)
@@ -615,28 +612,23 @@ class CustomSemanticSegmentationTask(BaseTask):
         self.train_metrics.reset()
 
     def on_validation_epoch_end(self) -> None:
-        object_precision = (
-            self.val_tps / (self.val_tps + self.val_fps)
-            if (self.val_tps + self.val_fps) > 0
-            else 0
-        )
-        object_recall = (
-            self.val_tps / (self.val_tps + self.val_fns)
-            if (self.val_tps + self.val_fns) > 0
-            else 0
-        )
-        object_f1 = (
-            2 * object_precision * object_recall / (object_precision + object_recall)
-            if (object_precision + object_recall) > 0
-            else 0
-        )
-        self.log("val/object_precision", object_precision)
-        self.log("val/object_recall", object_recall)
-        self.log("val/object_f1", object_f1)
+        from dataclasses import fields
 
-        self.val_tps = 0
-        self.val_fps = 0
-        self.val_fns = 0
+        names = [field.name for field in fields(InstanceStatistics)]
+        values = torch.tensor(
+            [getattr(self.val_instance_stats, name) for name in names],
+            device=self.device,
+            dtype=torch.float64,
+        )
+        if (
+            torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+        ):
+            torch.distributed.all_reduce(values)
+        pooled = InstanceStatistics(**dict(zip(names, values.tolist())))
+        for name, score in pooled.scores().items():
+            self.log(f"val/{name}", score, on_step=False, on_epoch=True)
+        self.val_instance_stats = InstanceStatistics()
         # log consensus if any samples valid
         if self.val_consensus_count > 0:
             avg_consensus = self.val_consensus_sum / self.val_consensus_count

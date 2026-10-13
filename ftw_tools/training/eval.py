@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from ftw_tools.settings import FULL_DATA_COUNTRIES
 from ftw_tools.training.datasets import FTW
-from ftw_tools.training.metrics import get_object_level_metrics
+from ftw_tools.training.metrics import InstanceStatistics, instance_statistics
 from ftw_tools.training.trainers import CustomSemanticSegmentationTask
 
 
@@ -58,6 +58,7 @@ def compute_metrics_from_aggregated_data(
     all_object_fps: list[int],
     all_object_fns: list[int],
     test_on_3_classes: bool = False,
+    instance_stats: list[InstanceStatistics] | None = None,
 ) -> dict[str, float]:
     """Compute metrics from aggregated predictions and targets."""
 
@@ -123,7 +124,7 @@ def compute_metrics_from_aggregated_data(
     else:
         object_f1 = float("nan")
 
-    return {
+    output = {
         "pixel_iou": float(pixel_iou),
         "pixel_precision": float(pixel_precision),
         "pixel_recall": float(pixel_recall),
@@ -131,6 +132,12 @@ def compute_metrics_from_aggregated_data(
         "object_recall": float(object_recall),
         "object_f1": float(object_f1),
     }
+    if instance_stats is not None:
+        pooled = InstanceStatistics()
+        for chip in instance_stats:
+            pooled += chip
+        output.update(pooled.scores())
+    return output
 
 
 def bootstrap_confidence_intervals(
@@ -143,6 +150,7 @@ def bootstrap_confidence_intervals(
     device: torch.device | None = None,
     n_bootstrap: int = 1000,
     confidence_level: float = 0.95,
+    instance_stats: list[InstanceStatistics] | None = None,
 ) -> tuple[dict[str, float], dict[str, tuple[float, float]]]:
     """
     Compute bootstrap confidence intervals for metrics using global aggregation.
@@ -172,6 +180,7 @@ def bootstrap_confidence_intervals(
         all_object_fps,
         all_object_fns,
         test_on_3_classes,
+        instance_stats,
     )
     del all_outputs, all_masks
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
@@ -201,6 +210,9 @@ def bootstrap_confidence_intervals(
             boot_object_fps,
             boot_object_fns,
             test_on_3_classes,
+            [instance_stats[i] for i in indices]
+            if instance_stats is not None
+            else None,
         )
         bootstrap_metrics.append(boot_metrics)
 
@@ -253,7 +265,7 @@ def fit(config, ckpt_path, cli_args):
     os.environ.update(rasterio_best_practices)
 
     # Run the LightningCLI with the constructed arguments
-    cli = LightningCLI(
+    LightningCLI(
         model_class=BaseTask,
         seed_everything_default=0,
         subclass_mode_model=True,
@@ -370,6 +382,8 @@ def test(
     all_tps = 0
     all_fps = 0
     all_fns = 0
+    chip_instance_stats = []
+    pooled_instance_stats = InstanceStatistics()
 
     for batch in tqdm(dl):
         images = batch["image"].to(device) / norm
@@ -415,9 +429,18 @@ def test(
                 all_masks_list.append(mask_np)
 
             # Object-level metrics per sample
-            tps, fps, fns = get_object_level_metrics(
-                mask_np, output_np, iou_threshold=iou_threshold
+            chip_stats = instance_statistics(
+                mask_np,
+                output_np,
+                iou_threshold=iou_threshold,
+                ignore_index=trainer.hparams.get("ignore_index"),
             )
+            pooled_instance_stats += chip_stats
+            if bootstrap:
+                chip_instance_stats.append(chip_stats)
+            tps = int(chip_stats.tp)
+            fps = int(chip_stats.fp)
+            fns = int(chip_stats.fn)
 
             if bootstrap:
                 object_tps.append(tps)
@@ -434,25 +457,10 @@ def test(
     pixel_level_precision = results["MulticlassPrecision"][1].item()
     pixel_level_recall = results["MulticlassRecall"][1].item()
 
-    if all_tps + all_fps > 0:
-        object_precision = all_tps / (all_tps + all_fps)
-    else:
-        object_precision = float("nan")
-
-    if all_tps + all_fns > 0:
-        object_recall = all_tps / (all_tps + all_fns)
-    else:
-        object_recall = float("nan")
-
-    # Compute object F1
-    if object_precision + object_recall > 0 and not (
-        np.isnan(object_precision) or np.isnan(object_recall)
-    ):
-        object_f1 = (
-            2 * object_precision * object_recall / (object_precision + object_recall)
-        )
-    else:
-        object_f1 = float("nan")
+    instance_scores = pooled_instance_stats.scores()
+    object_precision = instance_scores["object_precision"]
+    object_recall = instance_scores["object_recall"]
+    object_f1 = instance_scores["object_f1"]
 
     # Bootstrap confidence intervals if requested
     confidence_intervals = None
@@ -468,6 +476,7 @@ def test(
             object_fns,
             test_on_3_classes,
             device,
+            instance_stats=chip_instance_stats,
         )
 
         print(
@@ -495,12 +504,46 @@ def test(
         print(f"Object level precision: {object_precision:.4f}")
         print(f"Object level recall: {object_recall:.4f}")
         print(f"Object level F1: {object_f1:.4f}")
+    for name in (
+        "rq",
+        "sq",
+        "pq",
+        "rand_split_score",
+        "rand_merge_score",
+        "covering_truth_to_prediction",
+        "covering_prediction_to_truth",
+    ):
+        print(f"{name}: {instance_scores[name]:.4f}")
 
     country_str = ";".join(countries)
     if set(countries) == set(FULL_DATA_COUNTRIES):
         country_str = "all"
 
     if out is not None:
+        extra_names = (
+            "rq",
+            "sq",
+            "pq",
+            "rand_split_score",
+            "rand_merge_score",
+            "covering_truth_to_prediction",
+            "covering_prediction_to_truth",
+        )
+        extra_header = "," + ",".join(extra_names)
+        extra_values = "," + ",".join(
+            str(instance_scores[name]) for name in extra_names
+        )
+        if os.path.exists(out):
+            with open(out) as existing:
+                header = existing.readline().strip().split(",")
+            expected_columns = 20 if bootstrap else 8
+            if len(header) != expected_columns + len(extra_names) or header[
+                -len(extra_names) :
+            ] != list(extra_names):
+                raise ValueError(
+                    "Existing evaluation CSV has a different metric schema; "
+                    "choose a new output path"
+                )
         if not os.path.exists(out):
             with open(out, "w") as f:
                 if bootstrap:
@@ -511,11 +554,17 @@ def test(
                         "pixel_level_recall_ci_lower,pixel_level_recall_ci_upper,"
                         "object_level_precision_ci_lower,object_level_precision_ci_upper,"
                         "object_level_recall_ci_lower,object_level_recall_ci_upper,"
-                        "object_level_f1_ci_lower,object_level_f1_ci_upper\n"
+                        "object_level_f1_ci_lower,object_level_f1_ci_upper"
+                        + extra_header
+                        + "\n"
                     )
                 else:
                     f.write(
-                        "train_checkpoint,countries,pixel_level_iou,pixel_level_precision,pixel_level_recall,object_level_precision,object_level_recall,object_level_f1\n"
+                        "train_checkpoint,countries,pixel_level_iou,"
+                        "pixel_level_precision,pixel_level_recall,"
+                        "object_level_precision,object_level_recall,object_level_f1"
+                        + extra_header
+                        + "\n"
                     )
 
         with open(out, "a") as f:
@@ -528,9 +577,12 @@ def test(
                     f"{ci['pixel_recall'][0]},{ci['pixel_recall'][1]},"
                     f"{ci['object_precision'][0]},{ci['object_precision'][1]},"
                     f"{ci['object_recall'][0]},{ci['object_recall'][1]},"
-                    f"{ci['object_f1'][0]},{ci['object_f1'][1]}\n"
+                    f"{ci['object_f1'][0]},{ci['object_f1'][1]}{extra_values}\n"
                 )
             else:
                 f.write(
-                    f"{model_path},{country_str},{pixel_level_iou},{pixel_level_precision},{pixel_level_recall},{object_precision},{object_recall},{object_f1}\n"
+                    f"{model_path},{country_str},{pixel_level_iou},"
+                    f"{pixel_level_precision},{pixel_level_recall},"
+                    f"{object_precision},{object_recall},{object_f1}"
+                    f"{extra_values}\n"
                 )

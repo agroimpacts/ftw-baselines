@@ -465,6 +465,12 @@ def model_fit(config, ckpt_path, cli_args):
     show_default=True,
     help="Whether to compute 95% confidence intervals using bootstrap sampling.",
 )
+@click.option(
+    "--out_dir",
+    type=click.Path(file_okay=False, path_type=str),
+    default=None,
+    help="Optional directory for per-chip metrics and raw prediction GeoTIFFs.",
+)
 def model_test(
     model,
     countries,
@@ -481,6 +487,7 @@ def model_test(
     resize_factor,
     num_workers,
     bootstrap,
+    out_dir,
 ):
     from ftw_tools.training.eval import test
 
@@ -500,6 +507,7 @@ def model_test(
         resize_factor,
         num_workers,
         bootstrap,
+        out_dir=out_dir,
     )
 
 

@@ -293,6 +293,7 @@ def test(
     resize_factor: int,
     num_workers: int,
     bootstrap: bool = False,
+    out_dir: str | None = None,
 ):
     """Command to test the model."""
     target_split = "val" if use_val_set else "test"
@@ -334,6 +335,32 @@ def test(
     )
     dl = DataLoader(ds, batch_size=64, shuffle=False, num_workers=num_workers)
     print(f"Created dataloader with {len(ds)} samples in {time.time() - tic:.2f}s")
+    artifacts = None
+    if out_dir is not None:
+        from ftw_tools.training.eval_artifacts import EvaluationArtifacts
+
+        artifacts = EvaluationArtifacts(
+            out_dir,
+            checkpoint=model_path,
+            dataset=dir,
+            settings={
+                "countries": list(countries),
+                "split": target_split,
+                "iou_threshold": iou_threshold,
+                "reference_connectivity": 4,
+                "prediction_connectivity": 4,
+                "ignore_index": trainer.hparams.get("ignore_index"),
+                "test_on_3_classes": test_on_3_classes,
+                "model_predicts_3_classes": model_predicts_3_classes,
+                "remap_boundary": model_predicts_3_classes,
+                "temporal_options": temporal_options,
+                "swap_order": swap_order,
+                "normalization_constant": norm,
+                "resize_factor": resize_factor,
+            },
+        )
+        if out == "metrics.csv":
+            out = str(artifacts.directory / "metrics.csv")
 
     if test_on_3_classes:
         metrics = MetricCollection(
@@ -385,6 +412,7 @@ def test(
     chip_instance_stats = []
     pooled_instance_stats = InstanceStatistics()
 
+    sample_offset = 0
     for batch in tqdm(dl):
         images = batch["image"].to(device) / norm
         masks = batch["mask"].to(device)
@@ -398,7 +426,9 @@ def test(
         with torch.inference_mode():
             outputs = model(images).argmax(dim=1)
         if resize_factor != 1:
-            outputs = down_sample(outputs.unsqueeze(1).float()).squeeze().long()
+            outputs = down_sample(outputs.unsqueeze(1).float())
+            outputs = outputs.squeeze(1).long()
+        raw_outputs = outputs if artifacts is not None else None
         if model_predicts_3_classes:
             new_outputs = torch.zeros(
                 outputs.shape[0], outputs.shape[1], outputs.shape[2], device=device
@@ -436,6 +466,14 @@ def test(
                 ignore_index=trainer.hparams.get("ignore_index"),
             )
             pooled_instance_stats += chip_stats
+            if artifacts is not None:
+                artifacts.add(
+                    ds.filenames[sample_offset + i],
+                    raw_outputs[i].cpu().numpy(),
+                    output_np,
+                    mask_np,
+                    chip_stats,
+                )
             if bootstrap:
                 chip_instance_stats.append(chip_stats)
             tps = int(chip_stats.tp)
@@ -450,6 +488,7 @@ def test(
             all_tps += tps
             all_fps += fps
             all_fns += fns
+        sample_offset += len(outputs)
 
     # Compute overall metrics
     results = metrics.compute()
@@ -458,6 +497,12 @@ def test(
     pixel_level_recall = results["MulticlassRecall"][1].item()
 
     instance_scores = pooled_instance_stats.scores()
+    if artifacts is not None:
+        artifacts.finish({
+            "pixel_iou": pixel_level_iou,
+            "pixel_precision": pixel_level_precision,
+            "pixel_recall": pixel_level_recall,
+        })
     object_precision = instance_scores["object_precision"]
     object_recall = instance_scores["object_recall"]
     object_f1 = instance_scores["object_f1"]

@@ -1,5 +1,8 @@
 # Instance metric contract
 
+For interpretation and worked examples, see the
+[instance metric guide](instance-metrics-guide.md).
+
 `ftw_tools.training.metrics.instance_statistics` evaluates aligned 2D semantic
 class arrays. Class 1 is field interior; class 0 is valid background, including
 when raster metadata calls 0 nodata. Class 2 is a valid boundary/background for

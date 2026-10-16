@@ -1,10 +1,12 @@
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
 import rasterio
 import torch
+from affine import Affine
 from click.testing import CliRunner
 from rasterio.transform import from_origin
 from torch.utils.data import DataLoader
@@ -13,7 +15,12 @@ from ftw_tools.cli import model_test
 from ftw_tools.training import eval as offline
 from ftw_tools.training.eval_artifacts import EvaluationArtifacts
 from ftw_tools.training.metrics import instance_statistics
-from ftw_tools.training.visualize_instances import render
+from ftw_tools.training.visualize_instances import (
+    LABEL_COLORS,
+    format_instance_scores,
+    orient_for_display,
+    render,
+)
 
 
 def _chip(root, chip_id):
@@ -95,7 +102,9 @@ def test_artifacts_pool_and_render_without_model(tmp_path):
         == "class 2 remapped to 0"
     )
     assert render(run, ranking="f1-recovery", limit=1) == 1
-    assert (run / "figures/f1-recovery/germany_one.png").exists()
+    assert (run / "figures/f1-recovery-oriented/germany_one.png").exists()
+    with pytest.raises(FileExistsError):
+        render(run, ranking="f1-recovery", limit=1)
     with pytest.raises(FileExistsError):
         EvaluationArtifacts(
             run,
@@ -103,6 +112,59 @@ def test_artifacts_pool_and_render_without_model(tmp_path):
             dataset=tmp_path,
             settings={"remap_boundary": True},
         )
+
+
+def test_score_panel_explains_high_merge_with_missed_fields():
+    row = SimpleNamespace(
+        rand_split_score=0.017362,
+        rand_merge_score=1.0,
+        covering_truth_to_prediction=0.049633,
+        covering_prediction_to_truth=0.20375,
+        stat_tp=0,
+        stat_fp=4,
+        stat_fn=19,
+        object_precision=0.0,
+        object_recall=0.0,
+        object_f1=0.0,
+        rq=0.0,
+        sq=float("nan"),
+        pq=0.0,
+        pixel_binary_interior_iou_class_1=0.05,
+    )
+    left, right = format_instance_scores(row)
+    assert "Rand split / merge    " in left
+    assert "0.017 / 1.000" in left
+    assert "TP / FP / FN" in left
+    assert "0 / 4 / 19" in left
+    assert "RQ / SQ / PQ" in left
+    assert "0.000 / — / 0.000" in left
+    assert "Recovery / support" in right
+    assert "0.050 / 0.204" in right
+    assert "Object precision / recall / F1" in right
+    assert "0.000 / 0.000 / 0.000" in right
+    assert "Field-interior pixel IoU" in right
+    assert "0.050" in right
+    assert [line[32] for line in left.splitlines()] == ["0", "0", "0"]
+    assert [line[32] for line in right.splitlines()] == ["0", "0", "0"]
+
+
+def test_plot_orientation_and_label_palette():
+    values = np.array([[1, 2], [3, 4]])
+    south_up = Affine(1, 0, 0, 0, 1, 0)
+    north_up = Affine(1, 0, 0, 0, -1, 0)
+    assert orient_for_display(values, south_up).tolist() == [[3, 4], [1, 2]]
+    assert np.array_equal(orient_for_display(values, north_up), values)
+    assert orient_for_display(values, Affine(-1, 0, 0, 0, 1, 0)).tolist() == [
+        [4, 3],
+        [2, 1],
+    ]
+    assert orient_for_display(np.stack([values] * 3, axis=-1), south_up)[
+        0, 0
+    ].tolist() == [3, 3, 3]
+    with pytest.raises(ValueError, match="Rotated"):
+        orient_for_display(values, Affine(1, 0.1, 0, 0, 1, 0))
+    assert LABEL_COLORS[1] == "#2478c8"
+    assert LABEL_COLORS[2] == "#d74141"
 
 
 def test_cli_optional_out_dir(monkeypatch, tmp_path):

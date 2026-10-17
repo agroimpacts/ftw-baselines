@@ -6,6 +6,7 @@ from typing import Sequence
 import kornia.augmentation as K
 import numpy as np
 import torch
+import torch.nn.functional as F
 from einops import rearrange
 from kornia.constants import Resample
 from lightning.pytorch.cli import LightningCLI
@@ -294,8 +295,13 @@ def test(
     num_workers: int,
     bootstrap: bool = False,
     out_dir: str | None = None,
+    save_probabilities: bool = False,
 ):
     """Command to test the model."""
+    if save_probabilities and (out_dir is None or not model_predicts_3_classes):
+        raise ValueError(
+            "--save_probabilities requires --out_dir and a three-class model"
+        )
     target_split = "val" if use_val_set else "test"
     print(f"Running test command on the {target_split} set")
     if gpu is None:
@@ -357,6 +363,7 @@ def test(
                 "swap_order": swap_order,
                 "normalization_constant": norm,
                 "resize_factor": resize_factor,
+                "save_probabilities": save_probabilities,
             },
         )
         if out == "metrics.csv":
@@ -424,10 +431,17 @@ def test(
             images = rearrange(images, "b (t c) h w -> b t c h w", t=2)
 
         with torch.inference_mode():
-            outputs = model(images).argmax(dim=1)
+            logits = model(images)
+            outputs = logits.argmax(dim=1)
+            probabilities = logits.softmax(dim=1) if save_probabilities else None
+            del logits
         if resize_factor != 1:
             outputs = down_sample(outputs.unsqueeze(1).float())
             outputs = outputs.squeeze(1).long()
+            if probabilities is not None:
+                probabilities = F.interpolate(
+                    probabilities, size=outputs.shape[-2:], mode="nearest"
+                )
         raw_outputs = outputs if artifacts is not None else None
         if model_predicts_3_classes:
             new_outputs = torch.zeros(
@@ -473,6 +487,9 @@ def test(
                     output_np,
                     mask_np,
                     chip_stats,
+                    probabilities[i].cpu().numpy()
+                    if probabilities is not None
+                    else None,
                 )
             if bootstrap:
                 chip_instance_stats.append(chip_stats)
@@ -498,11 +515,13 @@ def test(
 
     instance_scores = pooled_instance_stats.scores()
     if artifacts is not None:
-        artifacts.finish({
-            "pixel_iou": pixel_level_iou,
-            "pixel_precision": pixel_level_precision,
-            "pixel_recall": pixel_level_recall,
-        })
+        artifacts.finish(
+            {
+                "pixel_iou": pixel_level_iou,
+                "pixel_precision": pixel_level_precision,
+                "pixel_recall": pixel_level_recall,
+            }
+        )
     object_precision = instance_scores["object_precision"]
     object_recall = instance_scores["object_recall"]
     object_f1 = instance_scores["object_f1"]

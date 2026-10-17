@@ -471,6 +471,11 @@ def model_fit(config, ckpt_path, cli_args):
     default=None,
     help="Optional directory for per-chip metrics and raw prediction GeoTIFFs.",
 )
+@click.option(
+    "--save_probabilities",
+    is_flag=True,
+    help=("Save three-channel float32 probabilities alongside --out_dir predictions."),
+)
 def model_test(
     model,
     countries,
@@ -488,6 +493,7 @@ def model_test(
     num_workers,
     bootstrap,
     out_dir,
+    save_probabilities,
 ):
     from ftw_tools.training.eval import test
 
@@ -508,6 +514,7 @@ def model_test(
         num_workers,
         bootstrap,
         out_dir=out_dir,
+        save_probabilities=save_probabilities,
     )
 
 

@@ -87,11 +87,7 @@ def test_artifacts_pool_and_render_without_model(tmp_path):
     assert summary["instance_statistics"]["tp"] == stats.tp
     assert summary["instance_scores"]["sq"] == stats.scores()["sq"]
     comparisons = summary["pixel_comparisons"]
-    assert set(comparisons) == {
-        "three_class",
-        "binary_interior",
-        "legacy_asymmetric",
-    }
+    assert set(comparisons) == {"three_class", "binary_interior", "legacy_asymmetric"}
     assert comparisons["three_class"]["confusion"][2][2] == 1
     assert comparisons["legacy_asymmetric"]["confusion"][2][0] == 1
     assert comparisons["binary_interior"]["scores"]["iou_class_1"] == 1
@@ -186,11 +182,16 @@ def test_cli_optional_out_dir(monkeypatch, tmp_path):
     assert runner.invoke(model_test, base).exit_code == 0
     assert arguments[-1]["out_dir"] is None
     out_dir = tmp_path / "run"
+    assert runner.invoke(model_test, base + ["--out_dir", str(out_dir)]).exit_code == 0
+    assert arguments[-1]["out_dir"] == str(out_dir)
+    assert arguments[-1]["save_probabilities"] is False
     assert (
-        runner.invoke(model_test, base + ["--out_dir", str(out_dir)]).exit_code
+        runner.invoke(
+            model_test, base + ["--out_dir", str(out_dir), "--save_probabilities"]
+        ).exit_code
         == 0
     )
-    assert arguments[-1]["out_dir"] == str(out_dir)
+    assert arguments[-1]["save_probabilities"] is True
     assert not out_dir.exists()
 
 
@@ -256,23 +257,13 @@ def test_offline_artifacts_follow_partial_batch(monkeypatch, tmp_path):
     summary = json.loads((run / "summary.json").read_text())
     assert summary["chip_count"] == 3
     assert summary["instance_statistics"]["tp"] == table.stat_tp.sum()
+    assert summary["pixel_comparisons"]["three_class"]["scores"]["iou_class_2"] == 1
     assert (
-        summary["pixel_comparisons"]["three_class"]["scores"]["iou_class_2"]
-        == 1
-    )
-    assert (
-        summary["pixel_comparisons"]["legacy_asymmetric"]["scores"][
-            "iou_class_2"
-        ]
-        == 0
+        summary["pixel_comparisons"]["legacy_asymmetric"]["scores"]["iou_class_2"] == 0
     )
     assert (
         summary["pixel_scores"]["pixel_iou"]
-        == (
-            summary["pixel_comparisons"]["legacy_asymmetric"]["scores"][
-                "iou_class_1"
-            ]
-        )
+        == summary["pixel_comparisons"]["legacy_asymmetric"]["scores"]["iou_class_1"]
     )
     for mode, details in summary["pixel_comparisons"].items():
         for reference, line in enumerate(details["confusion"]):
@@ -302,3 +293,76 @@ def test_offline_artifacts_follow_partial_batch(monkeypatch, tmp_path):
         pd.read_csv(default_csv).iloc[0]["object_level_f1"]
         == (summary["instance_scores"]["object_f1"])
     )
+
+
+def test_probability_artifacts_follow_partial_batch(monkeypatch, tmp_path):
+    records = [_chip(tmp_path, str(i)) for i in range(3)]
+    checkpoint = tmp_path / "model.ckpt"
+    checkpoint.write_bytes(b"fake weights")
+
+    class FakeDataset:
+        def __init__(self, **kwargs):
+            self.filenames = records
+
+        def __len__(self):
+            return len(records)
+
+        def __getitem__(self, index):
+            return {
+                "image": torch.zeros((8, 2, 2)),
+                "mask": torch.tensor([[1, 2], [0, 3]]),
+            }
+
+    class FakeModel(torch.nn.Module):
+        def forward(self, x):
+            logits = torch.zeros((len(x), 3, 2, 2))
+            logits[:, 1, 0, 0] = 5
+            logits[:, 2, 0, 1] = 5
+            return logits
+
+    class FakeTask:
+        hparams = {"model": "unet", "ignore_index": 3}
+        model = FakeModel()
+
+    monkeypatch.setattr(offline, "FTW", FakeDataset)
+    monkeypatch.setattr(
+        offline.CustomSemanticSegmentationTask,
+        "load_from_checkpoint",
+        lambda *args, **kwargs: FakeTask(),
+    )
+    monkeypatch.setattr(
+        offline, "DataLoader", lambda ds, **kwargs: DataLoader(ds, batch_size=2)
+    )
+    run = tmp_path / "run"
+    offline.test(
+        str(checkpoint),
+        str(tmp_path),
+        -1,
+        ["germany"],
+        0.5,
+        None,
+        True,
+        True,
+        "stacked",
+        False,
+        False,
+        None,
+        1,
+        1,
+        out_dir=str(run),
+        save_probabilities=True,
+    )
+    table = pd.read_parquet(run / "chips.parquet")
+    for row in table.itertuples():
+        with (
+            rasterio.open(run / row.prediction) as classes,
+            rasterio.open(run / row.probabilities) as scores,
+        ):
+            assert scores.count == 3
+            assert scores.dtypes == ("float32",) * 3
+            assert scores.transform == classes.transform
+            assert scores.crs == classes.crs
+            np.testing.assert_array_equal(scores.read().argmax(axis=0), classes.read(1))
+            np.testing.assert_allclose(scores.read().sum(axis=0), 1)
+    manifest = json.loads((run / "manifest.json").read_text())
+    assert manifest["settings"]["save_probabilities"] is True

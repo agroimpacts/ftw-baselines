@@ -38,11 +38,11 @@ class EvaluationArtifacts:
     def __init__(self, directory, *, checkpoint, dataset, settings):
         self.directory = Path(directory).expanduser().resolve()
         if self.directory.exists() and any(self.directory.iterdir()):
-            raise FileExistsError(
-                f"Output directory is not empty: {self.directory}"
-            )
+            raise FileExistsError(f"Output directory is not empty: {self.directory}")
         self.directory.mkdir(parents=True, exist_ok=True)
         (self.directory / "predictions").mkdir()
+        if settings.get("save_probabilities"):
+            (self.directory / "probabilities").mkdir()
         self.rows = []
         self.pooled = InstanceStatistics()
         self.pixel_counts = {}
@@ -55,6 +55,13 @@ class EvaluationArtifacts:
             "dataset": str(Path(dataset).expanduser().resolve()),
             "settings": settings,
             "prediction_raster": "raw model argmax classes",
+            "probability_raster": (
+                "float32 softmax channels 0=background, 1=field, 2=boundary; "
+                "nearest-neighbour resized from model grid when "
+                "resize_factor != 1"
+                if settings.get("save_probabilities")
+                else None
+            ),
             "scored_raster": (
                 "class 2 remapped to 0"
                 if settings["remap_boundary"]
@@ -69,7 +76,7 @@ class EvaluationArtifacts:
             or None,
         }
 
-    def add(self, file_record, raw, scored, truth, stats):
+    def add(self, file_record, raw, scored, truth, stats, probabilities=None):
         """Persist raw prediction on the ground-truth grid and score it."""
         reference = Path(file_record["mask"])
         country = reference.parents[2].name
@@ -79,23 +86,40 @@ class EvaluationArtifacts:
             raise ValueError(f"Duplicate chip: {country}/{chip_id}")
         self.seen.add(key)
         if raw.shape != scored.shape or raw.shape != truth.shape:
-            raise ValueError(
-                f"Prediction/reference shape mismatch: {reference}"
-            )
+            raise ValueError(f"Prediction/reference shape mismatch: {reference}")
         with rasterio.open(reference) as source:
             if source.count != 1 or source.shape != raw.shape:
-                raise ValueError(
-                    f"Prediction/reference grid mismatch: {reference}"
-                )
+                raise ValueError(f"Prediction/reference grid mismatch: {reference}")
             profile = source.profile.copy()
         if not np.isin(raw, [0, 1, 2]).all():
             raise ValueError("Expected raw semantic classes 0, 1 or 2")
+        saving_probabilities = self.manifest["settings"].get(
+            "save_probabilities", False
+        )
+        if saving_probabilities != (probabilities is not None):
+            raise ValueError("Probability data must match save_probabilities setting")
+        if probabilities is not None:
+            if (
+                probabilities.shape != (3, *raw.shape)
+                or not np.isfinite(probabilities).all()
+            ):
+                raise ValueError("Expected finite, aligned three-channel probabilities")
+            if not np.array_equal(probabilities.argmax(axis=0), raw):
+                raise ValueError("Probability argmax differs from saved raw classes")
         relative = Path("predictions") / country / f"{chip_id}.tif"
         path = self.directory / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         profile.update(count=1, dtype="uint8", nodata=None)
         with rasterio.open(path, "w", **profile) as target:
             target.write(raw.astype(np.uint8), 1)
+        probability_relative = None
+        if probabilities is not None:
+            probability_relative = Path("probabilities") / country / f"{chip_id}.tif"
+            probability_path = self.directory / probability_relative
+            probability_path.parent.mkdir(parents=True, exist_ok=True)
+            probability_profile = {**profile, "count": 3, "dtype": "float32"}
+            with rasterio.open(probability_path, "w", **probability_profile) as target:
+                target.write(probabilities.astype(np.float32))
         self.pooled += stats
         valid = np.isin(truth, (0, 1, 2))
         ignore_index = self.manifest["settings"].get("ignore_index")
@@ -106,9 +130,7 @@ class EvaluationArtifacts:
             raw,
             three_class=(
                 self.manifest["settings"].get("test_on_3_classes", False)
-                and self.manifest["settings"].get(
-                    "model_predicts_3_classes", False
-                )
+                and self.manifest["settings"].get("model_predicts_3_classes", False)
             ),
             ignore_index=ignore_index,
         )
@@ -137,13 +159,14 @@ class EvaluationArtifacts:
                 "window_b": file_record["window_b"],
                 "reference": str(reference),
                 "prediction": str(relative),
+                "probabilities": str(probability_relative)
+                if probability_relative
+                else None,
                 "valid_pixels": int(valid.sum()),
                 "ignored_pixels": int((~valid).sum()),
                 "scored_boundary_pixels": int((scored == 2).sum()),
                 "raw_boundary_pixels": int((raw == 2).sum()),
-                **{
-                    f"stat_{key}": value for key, value in asdict(stats).items()
-                },
+                **{f"stat_{key}": value for key, value in asdict(stats).items()},
                 **stats.scores(),
                 **chip_pixels,
             }

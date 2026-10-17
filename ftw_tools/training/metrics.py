@@ -8,6 +8,7 @@ from dataclasses import dataclass, fields
 import numpy as np
 from scipy.ndimage import label
 from scipy.optimize import linear_sum_assignment
+from skimage.measure import label as label_values
 
 
 @dataclass
@@ -29,9 +30,7 @@ class InstanceStatistics:
     def __iadd__(self, other):
         for field in fields(self):
             setattr(
-                self,
-                field.name,
-                getattr(self, field.name) + getattr(other, field.name),
+                self, field.name, getattr(self, field.name) + getattr(other, field.name)
             )
         return self
 
@@ -95,42 +94,63 @@ def instance_statistics(
         valid &= truth != ignore_index
     square = np.ones((3, 3), dtype=int)
     gt, ng = label(
-        (truth == 1) & valid,
-        structure=square if reference_connectivity == 8 else None,
+        (truth == 1) & valid, structure=square if reference_connectivity == 8 else None
     )
     predicted, npred = label(
-        (pred == 1) & valid,
-        structure=square if prediction_connectivity == 8 else None,
+        (pred == 1) & valid, structure=square if prediction_connectivity == 8 else None
     )
+    return _statistics_from_labels(gt, predicted, ng, npred, iou_threshold)
+
+
+def instance_label_statistics(
+    y_true, labels, iou_threshold=0.5, ignore_index=None, reference_connectivity=4
+):
+    """Score integer instance IDs against class-1 references on valid pixels.
+
+    Disconnected pieces and pieces divided by ignored pixels count separately.
+    """
+    truth, predicted = np.asarray(y_true), np.asarray(labels)
+    if truth.ndim != 2 or truth.shape != predicted.shape:
+        raise ValueError("truth and labels must be aligned 2D arrays")
+    if predicted.dtype.kind not in "iu" or np.any(predicted < 0):
+        raise ValueError("instance labels must be nonnegative integers")
+    if not 0 <= iou_threshold <= 1:
+        raise ValueError("iou_threshold must be between 0 and 1")
+    if reference_connectivity not in (4, 8):
+        raise ValueError("reference_connectivity must be 4 or 8")
+    valid = np.isin(truth, (0, 1, 2))
+    if ignore_index is not None:
+        valid &= truth != ignore_index
+    gt, ng = label(
+        (truth == 1) & valid,
+        structure=(np.ones((3, 3), dtype=int) if reference_connectivity == 8 else None),
+    )
+    pred = label_values(np.where(valid, predicted, 0), connectivity=1, background=0)
+    return _statistics_from_labels(gt, pred, ng, int(pred.max()), iou_threshold)
+
+
+def _statistics_from_labels(gt, predicted, ng, npred, iou_threshold):
+    """Compute the common additive statistics from positive instance IDs."""
     gt_area = np.bincount(gt.ravel(), minlength=ng + 1)[1:].astype(float)
-    pd_area = np.bincount(predicted.ravel(), minlength=npred + 1)[1:].astype(
-        float
-    )
+    pd_area = np.bincount(predicted.ravel(), minlength=npred + 1)[1:].astype(float)
     overlaps = (
         np.bincount(
-            (predicted * (ng + 1) + gt).ravel(),
-            minlength=(npred + 1) * (ng + 1),
+            (predicted * (ng + 1) + gt).ravel(), minlength=(npred + 1) * (ng + 1)
         )
         .reshape(npred + 1, ng + 1)[1:, 1:]
         .astype(float)
     )
     unions = pd_area[:, None] + gt_area[None, :] - overlaps
-    ious = np.divide(
-        overlaps, unions, out=np.zeros_like(overlaps), where=unions > 0
-    )
+    ious = np.divide(overlaps, unions, out=np.zeros_like(overlaps), where=unions > 0)
     stats = InstanceStatistics(
         fp=npred,
         fn=ng,
         intersection_sq=float(np.square(overlaps).sum()),
         truth_area_sq=float(np.square(gt_area).sum()),
         prediction_on_truth_sq=float(np.square(overlaps.sum(axis=1)).sum()),
-        truth_cover_sum=float(np.dot(gt_area, ious.max(axis=0)))
-        if npred
-        else 0.0,
+        truth_cover_sum=(float(np.dot(gt_area, ious.max(axis=0))) if npred else 0.0),
         truth_area=float(gt_area.sum()),
-        prediction_cover_sum=float(np.dot(pd_area, ious.max(axis=1)))
-        if ng
-        else 0.0,
+        prediction_cover_sum=(float(np.dot(pd_area, ious.max(axis=1))) if ng else 0.0),
         prediction_area=float(pd_area.sum()),
     )
     if npred and ng:

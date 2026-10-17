@@ -5,7 +5,11 @@ import pytest
 import rasterio.features
 import shapely.geometry
 
-from ftw_tools.training.metrics import InstanceStatistics, instance_statistics
+from ftw_tools.training.metrics import (
+    InstanceStatistics,
+    instance_label_statistics,
+    instance_statistics,
+)
 
 
 def test_diagonal_contact_and_connectivity():
@@ -24,9 +28,7 @@ def _legacy_object_counts(truth, pred, threshold=0.5):
     def polygons(mask):
         return [
             shapely.geometry.shape(geometry)
-            for geometry, value in rasterio.features.shapes(
-                mask.astype(np.uint8)
-            )
+            for geometry, value in rasterio.features.shapes(mask.astype(np.uint8))
             if value == 1
         ]
 
@@ -68,9 +70,7 @@ def test_threshold_is_strict_and_partial_overlap():
     assert stats.tp == 1
     assert stats.scores()["sq"] == pytest.approx(2 / 3)
     assert stats.scores()["pq"] == pytest.approx(2 / 3)
-    assert (
-        instance_statistics(truth, pred, iou_threshold=0.8).scores()["pq"] == 0
-    )
+    assert instance_statistics(truth, pred, iou_threshold=0.8).scores()["pq"] == 0
 
 
 def test_ignored_pixels_are_removed_from_both_sides():
@@ -96,12 +96,8 @@ def test_split_merge_and_unsupported_area():
     merged = instance_statistics(truth, np.ones_like(truth))
     assert merged.scores()["rand_merge_score"] < 1
     assert merged.scores()["rand_split_score"] == 1
-    unsupported = instance_statistics(
-        np.array([[1, 0, 0]]), np.array([[1, 1, 1]])
-    )
-    assert unsupported.scores()[
-        "covering_prediction_to_truth"
-    ] == pytest.approx(1 / 3)
+    unsupported = instance_statistics(np.array([[1, 0, 0]]), np.array([[1, 1, 1]]))
+    assert unsupported.scores()["covering_prediction_to_truth"] == pytest.approx(1 / 3)
 
 
 def test_empty_and_pooled_chips():
@@ -116,6 +112,16 @@ def test_empty_and_pooled_chips():
     pooled += missed
     pooled += instance_statistics(np.ones((2, 2)), np.ones((2, 2)))
     assert pooled.scores()["object_recall"] == 0.5
-    assert pooled.scores()["covering_truth_to_prediction"] == pytest.approx(
-        4 / 5
-    )
+    assert pooled.scores()["covering_truth_to_prediction"] == pytest.approx(4 / 5)
+
+
+def test_integer_labels_preserve_adjacent_instances_and_ignore_seams():
+    truth = np.array([[1, 1, 3, 1, 1], [1, 1, 3, 1, 1]])
+    predicted = np.array([[7, 7, 7, 9, 9], [7, 7, 7, 9, 9]])
+    stats = instance_label_statistics(truth, predicted)
+    assert (stats.tp, stats.fp, stats.fn) == (2, 0, 0)
+    assert stats.scores()["pq"] == 1
+    split = np.array([[7, 9, 0, 7, 9], [7, 9, 0, 7, 9]])
+    assert instance_label_statistics(truth, split).fp == 4
+    with pytest.raises(ValueError, match="nonnegative integers"):
+        instance_label_statistics(truth, predicted.astype(float))

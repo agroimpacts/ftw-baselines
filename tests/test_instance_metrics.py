@@ -19,7 +19,7 @@ def test_diagonal_contact_and_connectivity():
         mask, mask, reference_connectivity=8, prediction_connectivity=4
     )
     assert (stats.tp, stats.fp, stats.fn) == (0, 2, 1)
-    assert stats.scores()["covering_truth_to_prediction"] == pytest.approx(0.5)
+    assert stats.scores()["recovery"] == pytest.approx(0.5)
 
 
 def _legacy_object_counts(truth, pred, threshold=0.5):
@@ -97,7 +97,7 @@ def test_split_merge_and_unsupported_area():
     assert merged.scores()["rand_merge_score"] < 1
     assert merged.scores()["rand_split_score"] == 1
     unsupported = instance_statistics(np.array([[1, 0, 0]]), np.array([[1, 1, 1]]))
-    assert unsupported.scores()["covering_prediction_to_truth"] == pytest.approx(1 / 3)
+    assert unsupported.scores()["support"] == pytest.approx(1 / 3)
 
 
 def test_empty_and_pooled_chips():
@@ -112,7 +112,7 @@ def test_empty_and_pooled_chips():
     pooled += missed
     pooled += instance_statistics(np.ones((2, 2)), np.ones((2, 2)))
     assert pooled.scores()["object_recall"] == 0.5
-    assert pooled.scores()["covering_truth_to_prediction"] == pytest.approx(4 / 5)
+    assert pooled.scores()["recovery"] == pytest.approx(4 / 5)
 
 
 def test_integer_labels_preserve_adjacent_instances_and_ignore_seams():

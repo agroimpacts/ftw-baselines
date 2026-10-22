@@ -574,8 +574,8 @@ def test(
         "pq",
         "rand_split_score",
         "rand_merge_score",
-        "covering_truth_to_prediction",
-        "covering_prediction_to_truth",
+        "recovery",
+        "support",
     ):
         print(f"{name}: {instance_scores[name]:.4f}")
 
@@ -590,8 +590,8 @@ def test(
             "pq",
             "rand_split_score",
             "rand_merge_score",
-            "covering_truth_to_prediction",
-            "covering_prediction_to_truth",
+            "recovery",
+            "support",
         )
         extra_header = "," + ",".join(extra_names)
         extra_values = "," + ",".join(

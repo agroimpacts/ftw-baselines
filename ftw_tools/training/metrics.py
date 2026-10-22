@@ -61,8 +61,8 @@ class InstanceStatistics:
             "rand_merge_score": merge
             if self.prediction_on_truth_sq
             else (0.0 if self.truth_area_sq else float("nan")),
-            "covering_truth_to_prediction": recovery,
-            "covering_prediction_to_truth": support,
+            "recovery": recovery,
+            "support": support,
         }
 
 

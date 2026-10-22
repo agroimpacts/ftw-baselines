@@ -15,11 +15,13 @@ from ftw_tools.cli import model_test
 from ftw_tools.training import eval as offline
 from ftw_tools.training.eval_artifacts import EvaluationArtifacts
 from ftw_tools.training.metrics import instance_statistics
+from ftw_tools.training.analyze_instances import analyze, correlations
 from ftw_tools.training.visualize_instances import (
     LABEL_COLORS,
     format_instance_scores,
     orient_for_display,
     render,
+    select_chips,
 )
 
 
@@ -86,6 +88,9 @@ def test_artifacts_pool_and_render_without_model(tmp_path):
     summary = json.loads((run / "summary.json").read_text())
     assert summary["instance_statistics"]["tp"] == stats.tp
     assert summary["instance_scores"]["sq"] == stats.scores()["sq"]
+    for name in ("recovery", "support"):
+        assert table.loc[0, name] == stats.scores()[name]
+        assert summary["instance_scores"][name] == stats.scores()[name]
     comparisons = summary["pixel_comparisons"]
     assert set(comparisons) == {"three_class", "binary_interior", "legacy_asymmetric"}
     assert comparisons["three_class"]["confusion"][2][2] == 1
@@ -99,6 +104,14 @@ def test_artifacts_pool_and_render_without_model(tmp_path):
     )
     assert render(run, ranking="f1-recovery", limit=1) == 1
     assert (run / "figures/f1-recovery-oriented/germany_one.png").exists()
+    assert render(run, chips=["germany/one"]) == 1
+    assert (run / "figures/selected/germany_one.png").exists()
+    assert render(run, metrics=("support", "object_precision")) == 1
+    assert (
+        run / "figures/support-vs-object_precision-absolute/germany_one.png"
+    ).exists()
+    assert analyze(run, tmp_path / "analysis") == 1
+    assert (tmp_path / "analysis/support-vs-object_precision.png").exists()
     with pytest.raises(FileExistsError):
         render(run, ranking="f1-recovery", limit=1)
     with pytest.raises(FileExistsError):
@@ -114,8 +127,8 @@ def test_score_panel_explains_high_merge_with_missed_fields():
     row = SimpleNamespace(
         rand_split_score=0.017362,
         rand_merge_score=1.0,
-        covering_truth_to_prediction=0.049633,
-        covering_prediction_to_truth=0.20375,
+        recovery=0.049633,
+        support=0.20375,
         stat_tp=0,
         stat_fp=4,
         stat_fn=19,
@@ -142,6 +155,37 @@ def test_score_panel_explains_high_merge_with_missed_fields():
     assert "0.050" in right
     assert [line[32] for line in left.splitlines()] == ["0", "0", "0"]
     assert [line[32] for line in right.splitlines()] == ["0", "0", "0"]
+
+
+def test_custom_rankings_and_pairwise_correlations():
+    table = pd.DataFrame(
+        {
+            "country": ["germany"] * 4,
+            "aoi_id": ["a", "b", "c", "d"],
+            "support": [0.9, 0.2, 0.7, np.nan],
+            "object_precision": [0.1, 0.8, 0.6, 0.4],
+            "recovery": [0.2, 0.4, np.nan, 0.8],
+        }
+    )
+    selection = {"metrics": ("support", "object_precision"), "limit": 2}
+    assert select_chips(table, **selection)[0].aoi_id.tolist() == ["a", "b"]
+    assert select_chips(table, **selection, order="low")[0].aoi_id.tolist() == [
+        "b",
+        "c",
+    ]
+    assert select_chips(table, **selection, order="high")[0].aoi_id.tolist() == [
+        "a",
+        "c",
+    ]
+    assert select_chips(table, chips=["germany/c"])[0].aoi_id.tolist() == ["c"]
+    with pytest.raises(ValueError, match="one chip"):
+        select_chips(table, chips=["germany/missing"])
+    pearson, spearman, counts = correlations(
+        table, ["support", "object_precision", "recovery"]
+    )
+    assert counts.loc["support", "recovery"] == 2
+    assert pearson.loc["support", "object_precision"] == pytest.approx(-0.884615)
+    assert spearman.loc["support", "object_precision"] == pytest.approx(-1)
 
 
 def test_plot_orientation_and_label_palette():

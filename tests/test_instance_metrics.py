@@ -8,6 +8,7 @@ import shapely.geometry
 from ftw_tools.training.metrics import (
     InstanceStatistics,
     instance_label_statistics,
+    instance_match_labels,
     instance_statistics,
 )
 
@@ -60,6 +61,19 @@ def test_default_counts_match_original_helper(truth, pred):
     truth, pred = np.array(truth), np.array(pred)
     stats = instance_statistics(truth, pred)
     assert (stats.tp, stats.fp, stats.fn) == _legacy_object_counts(truth, pred)
+
+
+def test_match_labels_agree_with_statistics_for_split_and_ignored_pixels():
+    truth = np.array([[1, 1, 1, 1, 1, 3, 1]])
+    pred = np.array([[1, 1, 0, 1, 1, 1, 1]])
+    gt, predicted, matched_gt, matched_pred, stats = instance_match_labels(
+        truth, pred, iou_threshold=0.3
+    )
+    assert stats == instance_statistics(truth, pred, iou_threshold=0.3)
+    assert (stats.tp, stats.fp, stats.fn) == (2, 1, 0)
+    assert len(matched_gt) == len(matched_pred) == 2
+    assert gt[0, 5] == predicted[0, 5] == 0
+    assert predicted[0, 3] not in matched_pred
 
 
 def test_threshold_is_strict_and_partial_overlap():

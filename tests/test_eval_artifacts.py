@@ -1,6 +1,7 @@
 import json
 from types import SimpleNamespace
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -15,10 +16,14 @@ from ftw_tools.cli import model_test
 from ftw_tools.training import eval as offline
 from ftw_tools.training.eval_artifacts import EvaluationArtifacts
 from ftw_tools.training.metrics import instance_statistics
+from ftw_tools.training import visualize_instances
 from ftw_tools.training.analyze_instances import analyze, correlations
 from ftw_tools.training.visualize_instances import (
     LABEL_COLORS,
+    MATCH_COLORS,
+    draw_object_contours,
     format_instance_scores,
+    object_status_labels,
     orient_for_display,
     render,
     select_chips,
@@ -53,7 +58,7 @@ def _chip(root, chip_id):
     return {"mask": str(mask), **paths}
 
 
-def test_artifacts_pool_and_render_without_model(tmp_path):
+def test_artifacts_pool_and_render_without_model(tmp_path, monkeypatch):
     checkpoint = tmp_path / "checkpoint.ckpt"
     checkpoint.write_bytes(b"synthetic checkpoint")
     record = _chip(tmp_path, "one")
@@ -102,7 +107,22 @@ def test_artifacts_pool_and_render_without_model(tmp_path):
         json.loads((run / "manifest.json").read_text())["scored_raster"]
         == "class 2 remapped to 0"
     )
+    subplots = plt.subplots
+    panels = []
+
+    def capture_panels(*args, **kwargs):
+        fig, axes = subplots(*args, **kwargs)
+        panels.append(axes)
+        return fig, axes
+
+    monkeypatch.setattr(visualize_instances.plt, "subplots", capture_panels)
     assert render(run, ranking="f1-recovery", limit=1) == 1
+    monkeypatch.setattr(visualize_instances.plt, "subplots", subplots)
+    assert len(panels[0]) == 5
+    assert not panels[0][2].collections and not panels[0][3].collections
+    assert len(panels[0][4].collections) == 1  # only the matched prediction
+    assert np.array_equal(panels[0][2].images[0].get_array(), truth)
+    assert np.array_equal(panels[0][3].images[0].get_array(), raw)
     assert (run / "figures/f1-recovery-oriented/germany_one.png").exists()
     assert render(run, chips=["germany/one"]) == 1
     assert (run / "figures/selected/germany_one.png").exists()
@@ -147,8 +167,8 @@ def test_score_panel_explains_high_merge_with_missed_fields():
     assert "0 / 4 / 19" in left
     assert "RQ / SQ / PQ" in left
     assert "0.000 / — / 0.000" in left
-    assert "Recovery / support" in right
-    assert "0.050 / 0.204" in right
+    assert "Support / recovery" in right
+    assert "0.204 / 0.050" in right
     assert "Object precision / recall / F1" in right
     assert "0.000 / 0.000 / 0.000" in right
     assert "Field-interior pixel IoU" in right
@@ -186,6 +206,51 @@ def test_custom_rankings_and_pairwise_correlations():
     assert counts.loc["support", "recovery"] == 2
     assert pearson.loc["support", "object_precision"] == pytest.approx(-0.884615)
     assert spearman.loc["support", "object_precision"] == pytest.approx(-1)
+
+
+def test_object_status_labels_classify_matched_unmatched_and_ignored():
+    truth = np.array([[1, 1, 0, 1, 1, 0, 1, 1, 3, 0]])
+    pred = np.array([[1, 1, 0, 1, 0, 0, 0, 0, 1, 1]])
+    statuses = object_status_labels(truth, pred, {}, (1, 2, 2))
+    predicted, tp_ids = statuses["TP"]
+    assert np.isin(predicted[0, :2], tp_ids).all()
+    _, fp_ids = statuses["FP"]
+    assert predicted[0, 3] in fp_ids
+    assert predicted[0, 8] == 0  # ignored reference pixel removes prediction
+    assert predicted[0, 9] in fp_ids
+    reference, fn_ids = statuses["FN"]
+    assert np.isin(reference[0, 3:5], fn_ids).all()
+    assert np.isin(reference[0, 6:8], fn_ids).all()
+    assert (len(tp_ids), len(fp_ids), len(fn_ids)) == (1, 2, 2)
+    assert list(MATCH_COLORS) == ["TP", "FP", "FN"]
+    with pytest.raises(ValueError, match="saved chip statistics"):
+        object_status_labels(truth, pred, {}, (2, 1, 2))
+
+
+def test_tp_prediction_can_overlap_a_different_fn_reference():
+    truth = np.array([[1, 1, 1, 0, 1, 1]])
+    pred = np.array([[1, 1, 1, 1, 1, 0]])
+    statuses = object_status_labels(truth, pred, {}, (1, 0, 1))
+    gt, missed = statuses["FN"]
+    predicted, matched = statuses["TP"]
+    assert len(missed) == len(matched) == 1
+    assert gt[0, 0] not in missed  # matched reference is never FN
+    assert gt[0, 4] in missed
+    assert predicted[0, 4] in matched  # same location, different objects
+
+
+def test_object_contour_tracks_exact_reference_pixel_boundary():
+    fig, axis = plt.subplots()
+    labels = np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]])
+    draw_object_contours(axis, labels, [1], MATCH_COLORS["FN"])
+    segments = axis.collections[0].get_segments()
+    assert {frozenset(map(tuple, segment)) for segment in segments} == {
+        frozenset(((0.5, 0.5), (1.5, 0.5))),
+        frozenset(((0.5, 1.5), (1.5, 1.5))),
+        frozenset(((0.5, 0.5), (0.5, 1.5))),
+        frozenset(((1.5, 0.5), (1.5, 1.5))),
+    }
+    plt.close(fig)
 
 
 def test_plot_orientation_and_label_palette():

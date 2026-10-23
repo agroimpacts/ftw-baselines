@@ -16,8 +16,12 @@ import numpy as np
 import pandas as pd
 import rasterio
 from matplotlib.colors import BoundaryNorm, ListedColormap
+from matplotlib.collections import LineCollection
 from matplotlib.patches import Patch
-from scipy.ndimage import binary_erosion
+from matplotlib.lines import Line2D
+from scipy.ndimage import find_objects
+
+from ftw_tools.training.metrics import instance_match_labels
 
 
 RANKINGS = {
@@ -25,7 +29,8 @@ RANKINGS = {
     "f1-support": ("object_f1", "support"),
     "rand-split-merge": ("rand_split_score", "rand_merge_score"),
 }
-LABEL_COLORS = ("#f2f2f2", "#2478c8", "#d74141", "#999999")
+LABEL_COLORS = ("#999999", "#2478c8", "#d74141", "#f2f2f2")
+MATCH_COLORS = {"TP": "#00e060", "FP": "#ff9f1c", "FN": "#e000ff"}
 
 
 def orient_for_display(array, transform):
@@ -66,7 +71,7 @@ def format_instance_scores(row):
     )
     right = column(
         (
-            ("Recovery / support", (f"{score('recovery')} / {score('support')}")),
+            ("Support / recovery", (f"{score('support')} / {score('recovery')}")),
             (
                 "Object precision / recall / F1",
                 (
@@ -78,6 +83,55 @@ def format_instance_scores(row):
         )
     )
     return left, right
+
+
+def object_status_labels(truth, pred, settings, expected_counts):
+    """Return component IDs classified using the saved chip's matching contract."""
+    gt, predicted, gt_matches, pred_matches, stats = instance_match_labels(
+        truth,
+        pred,
+        iou_threshold=settings.get("iou_threshold", 0.5),
+        ignore_index=settings.get("ignore_index"),
+        reference_connectivity=settings.get("reference_connectivity", 4),
+        prediction_connectivity=settings.get("prediction_connectivity", 4),
+    )
+    if (stats.tp, stats.fp, stats.fn) != tuple(expected_counts):
+        raise ValueError(
+            "Recomputed TP/FP/FN differ from saved chip statistics: "
+            f"{(stats.tp, stats.fp, stats.fn)} != {tuple(expected_counts)}"
+        )
+
+    return {
+        "TP": (predicted, pred_matches),
+        "FP": (
+            predicted,
+            np.setdiff1d(np.arange(1, predicted.max() + 1), pred_matches),
+        ),
+        "FN": (gt, np.setdiff1d(np.arange(1, gt.max() + 1), gt_matches)),
+    }
+
+
+def draw_object_contours(axis, labels, ids, color, *, linewidth=1.4):
+    """Draw exposed pixel sides, including sides between adjacent object IDs."""
+    boxes = find_objects(labels)
+    segments = []
+    for object_id in ids:
+        ys, xs = boxes[object_id - 1]
+        local = labels[ys, xs] == object_id
+        padded = np.pad(local, 1)
+        for exposed, start, end in (
+            (local & ~padded[:-2, 1:-1], (-0.5, -0.5), (0.5, -0.5)),
+            (local & ~padded[2:, 1:-1], (-0.5, 0.5), (0.5, 0.5)),
+            (local & ~padded[1:-1, :-2], (-0.5, -0.5), (-0.5, 0.5)),
+            (local & ~padded[1:-1, 2:], (0.5, -0.5), (0.5, 0.5)),
+        ):
+            y, x = np.nonzero(exposed)
+            origin = np.column_stack((x + xs.start, y + ys.start))
+            segments.extend(np.stack((origin + start, origin + end), axis=1))
+    if segments:
+        axis.add_collection(
+            LineCollection(segments, colors=[color], linewidths=linewidth)
+        )
 
 
 def select_chips(
@@ -167,7 +221,8 @@ def render(
     palette = ListedColormap(LABEL_COLORS)
     norm = BoundaryNorm([-0.5, 0.5, 1.5, 2.5, 3.5], palette.N)
     for row in ranked.itertuples():
-        fig, axes = plt.subplots(1, 4, figsize=(16, 5.6))
+        # fig, axes = plt.subplots(1, 5, figsize=(20, 5.6))
+        fig, axes = plt.subplots(1, 5, figsize=(16, 5.2))
         for axis, column, title in (
             (axes[0], "window_a", "Window A"),
             (axes[1], "window_b", "Window B"),
@@ -188,23 +243,37 @@ def render(
             axis.imshow(classes, cmap=palette, norm=norm, interpolation="nearest")
             axis.set_title(title)
             if title == "Reference":
+                reference = classes
                 reference_shape = classes.shape
                 reference_transform = transform
             else:
                 if classes.shape != reference_shape or transform != reference_transform:
                     raise ValueError("Reference and prediction grids differ")
-                # Draw predicted field outlines on the reference panel.
-                field = classes == 1
-                edge = field & ~binary_erosion(field)
-                overlay = np.ma.masked_where(~edge, edge)
-                axes[2].imshow(
-                    overlay,
-                    cmap=ListedColormap(["#ffdb00"]),
+                statuses = object_status_labels(
+                    reference,
+                    classes,
+                    manifest["settings"],
+                    (row.stat_tp, row.stat_fp, row.stat_fn),
+                )
+                axes[4].imshow(
+                    np.full(reference.shape, 0.96),
+                    cmap="gray",
                     vmin=0,
                     vmax=1,
                     interpolation="nearest",
-                    alpha=0.9,
                 )
+                axes[4].set_title("Object outlines (TP / FP / FN)")
+                # Wide FN first; narrow prediction lines leave a magenta rim
+                # when different objects share an edge.
+                for status in ("FN", "FP", "TP"):
+                    labels, ids = statuses[status]
+                    draw_object_contours(
+                        axes[4],
+                        labels,
+                        ids,
+                        MATCH_COLORS[status],
+                        linewidth=3 if status == "FN" else 1.4,
+                    )
         for axis in axes:
             axis.set_axis_off()
         title = f"{row.country}/{row.aoi_id}"
@@ -219,13 +288,24 @@ def render(
                     ("Background", "Field interior", "Boundary", "Ignored"),
                 )
             ]
-            + [Patch(facecolor="#ffdb00", label="Predicted field outline")],
+            + [
+                Line2D(
+                    [0],
+                    [0],
+                    color=color,
+                    linewidth=3 if status == "FN" else 1.4,
+                    label=f"{status} ({'reference' if status == 'FN' else 'prediction'})",
+                )
+                for status, color in MATCH_COLORS.items()
+            ],
             loc="upper center",
             bbox_to_anchor=(0.5, 0.96),
-            ncol=4,
+            ncol=7,
             frameon=False,
         )
-        fig.subplots_adjust(left=0.02, right=0.98, top=0.84, bottom=0.24)
+        # fig.subplots_adjust(left=0.02, right=0.98, top=0.84, bottom=0.24)
+        fig.subplots_adjust(left=0.01, right=0.99, top=0.84, bottom=0.24, 
+                            wspace=0.02)
         for x, text in zip((0.04, 0.52), format_instance_scores(row)):
             fig.text(x, 0.055, text, family="monospace", fontsize=10, va="bottom")
         fig.savefig(figures / f"{row.country}_{row.aoi_id}.png", dpi=150)

@@ -80,11 +80,44 @@ def instance_statistics(
     Matching maximizes cardinality first, then IoU, with strict IoU > threshold.
     No geospatial CRS is required.
     """
+    if not 0 <= iou_threshold <= 1:
+        raise ValueError("iou_threshold must be between 0 and 1")
+    gt, predicted, ng, npred = _semantic_instance_labels(
+        y_true, y_pred, prediction_connectivity, ignore_index, reference_connectivity
+    )
+    return _statistics_from_labels(gt, predicted, ng, npred, iou_threshold)
+
+
+def instance_match_labels(
+    y_true,
+    y_pred,
+    iou_threshold=0.5,
+    prediction_connectivity=4,
+    ignore_index=None,
+    reference_connectivity=4,
+):
+    """Return reference/prediction ID rasters, matched IDs and chip statistics.
+
+    Matched IDs are positive, one-based component labels on each respective raster.
+    Unmatched predictions are FP and unmatched references are FN.
+    """
+    if not 0 <= iou_threshold <= 1:
+        raise ValueError("iou_threshold must be between 0 and 1")
+    gt, predicted, ng, npred = _semantic_instance_labels(
+        y_true, y_pred, prediction_connectivity, ignore_index, reference_connectivity
+    )
+    stats, gt_matches, pred_matches = _statistics_from_labels(
+        gt, predicted, ng, npred, iou_threshold, return_matches=True
+    )
+    return gt, predicted, gt_matches, pred_matches, stats
+
+
+def _semantic_instance_labels(
+    y_true, y_pred, prediction_connectivity, ignore_index, reference_connectivity
+):
     truth, pred = np.asarray(y_true), np.asarray(y_pred)
     if truth.ndim != 2 or truth.shape != pred.shape:
         raise ValueError("truth and prediction must be aligned 2D arrays")
-    if not 0 <= iou_threshold <= 1:
-        raise ValueError("iou_threshold must be between 0 and 1")
     if prediction_connectivity not in (4, 8):
         raise ValueError("prediction_connectivity must be 4 or 8")
     if reference_connectivity not in (4, 8):
@@ -99,7 +132,7 @@ def instance_statistics(
     predicted, npred = label(
         (pred == 1) & valid, structure=square if prediction_connectivity == 8 else None
     )
-    return _statistics_from_labels(gt, predicted, ng, npred, iou_threshold)
+    return gt, predicted, ng, npred
 
 
 def instance_label_statistics(
@@ -129,7 +162,9 @@ def instance_label_statistics(
     return _statistics_from_labels(gt, pred, ng, int(pred.max()), iou_threshold)
 
 
-def _statistics_from_labels(gt, predicted, ng, npred, iou_threshold):
+def _statistics_from_labels(
+    gt, predicted, ng, npred, iou_threshold, *, return_matches=False
+):
     """Compute the common additive statistics from positive instance IDs."""
     gt_area = np.bincount(gt.ravel(), minlength=ng + 1)[1:].astype(float)
     pd_area = np.bincount(predicted.ravel(), minlength=npred + 1)[1:].astype(float)
@@ -153,6 +188,8 @@ def _statistics_from_labels(gt, predicted, ng, npred, iou_threshold):
         prediction_cover_sum=(float(np.dot(pd_area, ious.max(axis=1))) if ng else 0.0),
         prediction_area=float(pd_area.sum()),
     )
+    gt_matches = np.array([], dtype=int)
+    pred_matches = np.array([], dtype=int)
     if npred and ng:
         eligible = ious > iou_threshold
         # Bonus exceeds the total IoU gain from every other pair.
@@ -165,6 +202,10 @@ def _statistics_from_labels(gt, predicted, ng, npred, iou_threshold):
         stats.fp -= stats.tp
         stats.fn -= stats.tp
         stats.matched_iou = float(ious[rows[selected], cols[selected]].sum())
+        gt_matches = cols[selected] + 1
+        pred_matches = rows[selected] + 1
+    if return_matches:
+        return stats, gt_matches, pred_matches
     return stats
 
 

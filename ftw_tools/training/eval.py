@@ -15,9 +15,14 @@ from torchgeo.trainers import BaseTask
 from torchmetrics import JaccardIndex, MetricCollection, Precision, Recall
 from tqdm import tqdm
 
-from ftw_tools.settings import FULL_DATA_COUNTRIES
+from ftw_tools.settings import FULL_DATA_COUNTRIES, has_labeled_background
 from ftw_tools.training.datasets import FTW
-from ftw_tools.training.metrics import InstanceStatistics, instance_statistics
+from ftw_tools.training.metrics import (
+    FP_DEPENDENT_SCORES,
+    InstanceStatistics,
+    instance_statistics,
+    instance_scores_for_reporting,
+)
 from ftw_tools.training.trainers import CustomSemanticSegmentationTask
 
 
@@ -513,7 +518,10 @@ def test(
     pixel_level_precision = results["MulticlassPrecision"][1].item()
     pixel_level_recall = results["MulticlassRecall"][1].item()
 
-    instance_scores = pooled_instance_stats.scores()
+    background_known = all(has_labeled_background(country) for country in countries)
+    instance_scores = instance_scores_for_reporting(
+        pooled_instance_stats, background_known=background_known
+    )
     if artifacts is not None:
         artifacts.finish(
             {
@@ -542,6 +550,11 @@ def test(
             device,
             instance_stats=chip_instance_stats,
         )
+
+        if not background_known:
+            for name in FP_DEPENDENT_SCORES:
+                bootstrap_metrics[name] = float("nan")
+                confidence_intervals[name] = (float("nan"), float("nan"))
 
         print(
             f"Pixel level IoU: {pixel_level_iou:.4f}\t{bootstrap_metrics['pixel_iou']} [{confidence_intervals['pixel_iou'][0]:.4f}, {confidence_intervals['pixel_iou'][1]:.4f}]"

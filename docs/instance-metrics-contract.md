@@ -39,6 +39,19 @@ Pool statistics across chips, batches, workers or regions *before* taking ratios
 do not average chip scores. Chip-boundary objects are not stitched across chips.
 Metre-based polygon descriptors will require a suitable projected CRS separately.
 
+`instance_statistics().scores()` returns mathematical ratios without a dataset
+policy. In offline and method-comparison **reporting**, the countries outside
+`FULL_DATA_COUNTRIES` in `ftw_tools/settings.py` (currently Brazil, India,
+Kenya, and Rwanda) are presence-only: they have no labeled background from
+which to evaluate false positives. Their unmatched-prediction counts
+(`stat_fp`) remain within-valid-domain diagnostics, but `object_precision`,
+`object_f1`, `rq`, and `pq` are reported undefined. The same applies to pooled
+runs containing any presence-only country. `object_recall`, `sq` when
+matches exist, and threshold-free coverage/split/merge diagnostics remain
+available. Do not interpret presence-only pixel precision/IoU or support as
+background-validated precision either. Earlier outputs are not retroactively
+changed. See [audit instructions](offline-instance-evaluation.md#verify-the-original-object-count-helper).
+
 Definitions adapted from the local `../evaluation/metric_package/src/field_shape_metrics/`
 snapshot (`evaluation.py`, `ftw_input.py`); this implementation uses raster
 intersection counts rather than transferring source code. Provenance and license

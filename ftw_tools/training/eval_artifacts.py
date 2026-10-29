@@ -12,7 +12,8 @@ import pandas as pd
 import rasterio
 
 from ftw_tools.inference.model_registry import MODEL_REGISTRY
-from ftw_tools.training.metrics import InstanceStatistics
+from ftw_tools.settings import has_labeled_background
+from ftw_tools.training.metrics import InstanceStatistics, instance_scores_for_reporting
 from ftw_tools.training.pixel_evaluation import pixel_confusions, pixel_scores
 
 
@@ -167,7 +168,9 @@ class EvaluationArtifacts:
                 "scored_boundary_pixels": int((scored == 2).sum()),
                 "raw_boundary_pixels": int((raw == 2).sum()),
                 **{f"stat_{key}": value for key, value in asdict(stats).items()},
-                **stats.scores(),
+                **instance_scores_for_reporting(
+                    stats, background_known=has_labeled_background(country)
+                ),
                 **chip_pixels,
             }
         )
@@ -180,7 +183,14 @@ class EvaluationArtifacts:
         summary = {
             "chip_count": len(self.rows),
             "pixel_scores": _json_scores(existing_pixel_scores),
-            "instance_scores": _json_scores(self.pooled.scores()),
+            "instance_scores": _json_scores(
+                instance_scores_for_reporting(
+                    self.pooled,
+                    background_known=all(
+                        has_labeled_background(row["country"]) for row in self.rows
+                    ),
+                )
+            ),
             "instance_statistics": asdict(self.pooled),
             "pixel_comparisons": {
                 mode: {

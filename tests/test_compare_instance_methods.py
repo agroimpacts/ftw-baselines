@@ -4,9 +4,18 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from scripts.compare_instance_methods import compare
+from scripts.compare_instance_methods import _compare, _scores, compare
+from scripts.visualize_instance_methods import render, select_method_chips
 from ftw_tools.training.eval_artifacts import EvaluationArtifacts
 from ftw_tools.training.metrics import instance_statistics
+
+
+def test_method_scores_require_labeled_background_for_fp_dependent_metrics():
+    stats = instance_statistics(np.array([[1, 3]]), np.array([[1, 1]]))
+    assert _scores(stats, background_known=False)["object_recall"] == 1
+    for key in ("object_precision", "object_f1", "rq", "pq"):
+        assert _scores(stats, background_known=False)[key] is None
+    assert _scores(stats, background_known=True)["pq"] == 1
 
 
 def test_comparison_reproduces_baseline_and_keeps_methods_distinct(tmp_path):
@@ -25,6 +34,11 @@ def test_comparison_reproduces_baseline_and_keeps_methods_distinct(tmp_path):
     )
     with rasterio.open(mask, "w", **profile) as output:
         output.write(truth, 1)
+    for name in ("a", "b"):
+        with rasterio.open(
+            tmp_path / f"{name}.tif", "w", **{**profile, "count": 3}
+        ) as image:
+            image.write(np.ones((3, 3, 3), dtype=np.uint8))
     checkpoint = tmp_path / "model.ckpt"
     checkpoint.write_bytes(b"checkpoint")
     settings = dict(
@@ -47,7 +61,11 @@ def test_comparison_reproduces_baseline_and_keeps_methods_distinct(tmp_path):
     for k in range(3):
         scores[k, pred == k] = 0.9
     writer.add(
-        {"mask": str(mask), "window_a": "a", "window_b": "b"},
+        {
+            "mask": str(mask),
+            "window_a": str(tmp_path / "a.tif"),
+            "window_b": str(tmp_path / "b.tif"),
+        },
         pred,
         np.where(pred == 2, 0, pred),
         truth,
@@ -63,3 +81,20 @@ def test_comparison_reproduces_baseline_and_keeps_methods_distinct(tmp_path):
     assert result["methods"]["arg-none"]["scores"]["pq"] == 1
     summary = json.loads((tmp_path / "run/summary.json").read_text())
     assert summary["chip_count"] == 1
+    saved, _ = _compare(tmp_path / "run", ("arg-none",), labels_dir=tmp_path / "saved")
+    assert set(saved["labels"].notna()) == {True}
+    for row in saved.itertuples(index=False):
+        with rasterio.open(tmp_path / "saved" / row.labels) as labels:
+            assert labels.crs == profile["crs"]
+            assert labels.transform == profile["transform"]
+            assert labels.count == 1
+    (tmp_path / "saved/chips.parquet").parent.mkdir(exist_ok=True)
+    saved.to_parquet(tmp_path / "saved/chips.parquet", index=False)
+    result["source_run"] = str(tmp_path / "run")
+    (tmp_path / "saved/summary.json").write_text(json.dumps(result))
+    selected = select_method_chips(
+        saved, "arg-none", "components-4", ["germany/one"], "pq", 1
+    )
+    assert selected.delta.iloc[0] == 0
+    assert render(tmp_path / "saved", "arg-none", chips=["germany/one"]) == 1
+    assert (tmp_path / "saved/figures/arg-none/selected/germany_one.png").exists()

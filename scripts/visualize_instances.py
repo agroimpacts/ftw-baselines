@@ -1,6 +1,6 @@
 """Render selected offline test chips without rerunning the model.
 
-Usage: python -m ftw_tools.training.visualize_instances RUN_DIR
+Usage: python scripts/visualize_instances.py RUN_DIR
 """
 
 import argparse
@@ -17,10 +17,12 @@ import pandas as pd
 import rasterio
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.collections import LineCollection
-from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from scipy.ndimage import find_objects
 
+from ftw_tools.settings import has_labeled_background
+from ftw_tools.training.metrics import FP_DEPENDENT_SCORES
 from ftw_tools.training.metrics import instance_match_labels
 
 
@@ -50,6 +52,11 @@ def format_instance_scores(row):
     """Build aligned left/right score columns from a chip-table row."""
 
     def score(name):
+        if (
+            not has_labeled_background(getattr(row, "country", None))
+            and name in FP_DEPENDENT_SCORES
+        ):
+            return "—"
         value = getattr(row, name)
         return f"{value:.3f}" if math.isfinite(value) else "—"
 
@@ -64,7 +71,11 @@ def format_instance_scores(row):
             ),
             (
                 "TP / FP / FN",
-                (f"{int(row.stat_tp)} / {int(row.stat_fp)} / {int(row.stat_fn)}"),
+                (
+                    f"{int(row.stat_tp)} / "
+                    f"{'—' if not has_labeled_background(getattr(row, 'country', None)) else int(row.stat_fp)}"
+                    f" / {int(row.stat_fn)}"
+                ),
             ),
             ("RQ / SQ / PQ", (f"{score('rq')} / {score('sq')} / {score('pq')}")),
         )
@@ -197,6 +208,13 @@ def render(
     manifest = json.loads((run_dir / "manifest.json").read_text())
     normalization = manifest["settings"].get("normalization_constant", 3000.0)
     table = pd.read_parquet(run_dir / "chips.parquet")
+    # Older artifacts may contain numerically finite, but non-evaluable
+    # FP-dependent scores. Never rank chips using those values.
+    if "country" in table:
+        unknown_background = ~table.country.map(has_labeled_background)
+        for metric in FP_DEPENDENT_SCORES:
+            if metric in table:
+                table.loc[unknown_background, metric] = np.nan
     ranked, pair = select_chips(
         table, ranking=ranking, metrics=metrics, chips=chips, order=order, limit=limit
     )
@@ -221,7 +239,6 @@ def render(
     palette = ListedColormap(LABEL_COLORS)
     norm = BoundaryNorm([-0.5, 0.5, 1.5, 2.5, 3.5], palette.N)
     for row in ranked.itertuples():
-        # fig, axes = plt.subplots(1, 5, figsize=(20, 5.6))
         fig, axes = plt.subplots(1, 5, figsize=(16, 5.2))
         for axis, column, title in (
             (axes[0], "window_a", "Window A"),
@@ -232,6 +249,7 @@ def render(
                 rgb = orient_for_display(rgb, source.transform)
             axis.imshow(np.clip(rgb / normalization, 0, 1))
             axis.set_title(title)
+        reference = None
         for axis, path, title in (
             (axes[2], row.reference, "Reference"),
             (axes[3], run_dir / row.prediction, "Raw prediction (0/1/2)"),
@@ -241,6 +259,14 @@ def render(
                 classes = orient_for_display(classes, source.transform)
                 transform = source.transform
             axis.imshow(classes, cmap=palette, norm=norm, interpolation="nearest")
+            if title == "Raw prediction (0/1/2)":
+                ignored = ~np.isin(reference, (0, 1, 2))
+                ignore_index = manifest["settings"].get("ignore_index")
+                if ignore_index is not None:
+                    ignored |= reference == ignore_index
+                overlay = np.zeros((*ignored.shape, 4), dtype=float)
+                overlay[ignored] = (1, 1, 1, 0.75)
+                axis.imshow(overlay, interpolation="nearest")
             axis.set_title(title)
             if title == "Reference":
                 reference = classes
@@ -265,7 +291,11 @@ def render(
                 axes[4].set_title("Object outlines (TP / FP / FN)")
                 # Wide FN first; narrow prediction lines leave a magenta rim
                 # when different objects share an edge.
-                for status in ("FN", "FP", "TP"):
+                for status in (
+                    ("FN", "TP")
+                    if not has_labeled_background(row.country)
+                    else ("FN", "FP", "TP")
+                ):
                     labels, ids = statuses[status]
                     draw_object_contours(
                         axes[4],
@@ -297,17 +327,23 @@ def render(
                     label=f"{status} ({'reference' if status == 'FN' else 'prediction'})",
                 )
                 for status, color in MATCH_COLORS.items()
+                if has_labeled_background(row.country) or status != "FP"
             ],
             loc="upper center",
             bbox_to_anchor=(0.5, 0.96),
             ncol=7,
             frameon=False,
         )
-        # fig.subplots_adjust(left=0.02, right=0.98, top=0.84, bottom=0.24)
-        fig.subplots_adjust(left=0.01, right=0.99, top=0.84, bottom=0.24, 
-                            wspace=0.02)
+        fig.subplots_adjust(left=0.01, right=0.99, top=0.84, bottom=0.24, wspace=0.02)
         for x, text in zip((0.04, 0.52), format_instance_scores(row)):
             fig.text(x, 0.055, text, family="monospace", fontsize=10, va="bottom")
+        if not has_labeled_background(row.country):
+            fig.text(
+                0.04,
+                0.015,
+                "Presence-only reference: FP, precision, F1, RQ and PQ not evaluable",
+                fontsize=9,
+            )
         fig.savefig(figures / f"{row.country}_{row.aoi_id}.png", dpi=150)
         plt.close(fig)
     return len(ranked)

@@ -75,6 +75,12 @@ FULL_DATA_COUNTRIES = [
     "vietnam",
 ]
 
+
+def has_labeled_background(country: str) -> bool:
+    """Whether this dataset labels both field presence and absence."""
+    return country in FULL_DATA_COUNTRIES
+
+
 TEMPORAL_OPTIONS = [
     "stacked",
     "windowA",

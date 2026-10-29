@@ -5,12 +5,20 @@ import pytest
 import rasterio.features
 import shapely.geometry
 
+from ftw_tools.settings import (
+    ALL_COUNTRIES,
+    FULL_DATA_COUNTRIES,
+    has_labeled_background,
+)
 from ftw_tools.training.metrics import (
     InstanceStatistics,
     instance_label_statistics,
     instance_match_labels,
     instance_statistics,
+    instance_scores_for_reporting,
 )
+from ftw_tools.training.pixel_evaluation import pixel_confusions, pixel_scores
+from scripts.audit_instance_chip import audit
 
 
 def test_diagonal_contact_and_connectivity():
@@ -21,6 +29,14 @@ def test_diagonal_contact_and_connectivity():
     )
     assert (stats.tp, stats.fp, stats.fn) == (0, 2, 1)
     assert stats.scores()["recovery"] == pytest.approx(0.5)
+
+
+def test_background_coverage_comes_from_dataset_policy_not_chip_pixels():
+    assert {
+        country for country in ALL_COUNTRIES if not has_labeled_background(country)
+    } == {"brazil", "india", "kenya", "rwanda"}
+    assert all(has_labeled_background(country) for country in FULL_DATA_COUNTRIES)
+    assert has_labeled_background("germany")  # even if a chip has no class-0 pixels
 
 
 def _legacy_object_counts(truth, pred, threshold=0.5):
@@ -114,6 +130,18 @@ def test_split_merge_and_unsupported_area():
     assert unsupported.scores()["support"] == pytest.approx(1 / 3)
 
 
+def test_pixel_iou_can_be_perfect_despite_instance_split_or_merge():
+    mask = np.array([[1, 0], [0, 1]])
+    pixel_iou = pixel_scores(
+        pixel_confusions(mask, mask, three_class=False)["binary_interior"]
+    )["iou_class_1"]
+    assert pixel_iou == 1
+    split = instance_statistics(mask, mask, reference_connectivity=8)
+    merged = instance_statistics(mask, mask, prediction_connectivity=8)
+    assert split.scores()["recovery"] == pytest.approx(0.5)
+    assert merged.scores()["recovery"] == pytest.approx(0.5)
+
+
 def test_empty_and_pooled_chips():
     empty = instance_statistics(np.zeros((2, 2)), np.zeros((2, 2)))
     assert math.isnan(empty.scores()["object_f1"])
@@ -139,3 +167,42 @@ def test_integer_labels_preserve_adjacent_instances_and_ignore_seams():
     assert instance_label_statistics(truth, split).fp == 4
     with pytest.raises(ValueError, match="nonnegative integers"):
         instance_label_statistics(truth, predicted.astype(float))
+
+
+def test_tiny_reference_fragments_match_legacy_counts():
+    truth = np.zeros((5, 9), dtype=np.uint8)
+    truth[0, :3] = 1
+    truth[2, 1] = truth[4, 2] = 1
+    pred = np.zeros_like(truth)
+    pred[0, :3] = 1
+    stats = instance_statistics(truth, pred)
+    assert (stats.tp, stats.fp, stats.fn) == (1, 0, 2)
+    assert (stats.tp, stats.fp, stats.fn) == _legacy_object_counts(truth, pred)
+
+
+def test_ignored_background_and_below_threshold_overlap_are_distinct():
+    truth = np.array([[3, 3, 0, 1, 1, 1, 1, 1, 1]], dtype=np.uint8)
+    pred = np.array([[1, 1, 0, 1, 1, 0, 0, 0, 0]], dtype=np.uint8)
+    gt, labels, matched_gt, matched_pred, stats = instance_match_labels(truth, pred)
+    assert (stats.tp, stats.fp, stats.fn) == (0, 1, 1)
+    assert not len(matched_gt) and not len(matched_pred)
+    assert labels[0, :2].sum() == 0
+    assert np.count_nonzero(labels) == 2
+    assert np.count_nonzero(gt) == 6
+    # Original unmasked helper counts the prediction in ignored territory.
+    assert _legacy_object_counts(truth, pred) == (0, 2, 1)
+    assert stats.scores()["object_precision"] == 0
+    presence_only = instance_scores_for_reporting(stats, background_known=False)
+    for name in ("object_precision", "object_f1", "rq", "pq"):
+        assert math.isnan(presence_only[name])
+    assert presence_only["object_recall"] == 0
+    assert (
+        instance_scores_for_reporting(stats, background_known=True)["object_precision"]
+        == 0
+    )
+    details = audit(truth, pred)
+    assert details["current_counts"] == [0, 1, 1]
+    assert details["original_raw_counts"] == [0, 2, 1]
+    assert details["prediction_pixels_on_ignored_reference"] == 2
+    assert details["reference_objects"][0]["best_iou"] == pytest.approx(1 / 3)
+    assert details["reference_unmatched_at_most_1_2_4_10_pixels"]["10"] == 1

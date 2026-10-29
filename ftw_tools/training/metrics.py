@@ -11,6 +11,19 @@ from scipy.optimize import linear_sum_assignment
 from skimage.measure import label as label_values
 
 
+# Without labeled background, unmatched predictions cannot reliably be called
+# false positives. Keep their counts for diagnostics, not FP-based scoring.
+FP_DEPENDENT_SCORES = ("object_precision", "object_f1", "rq", "pq")
+
+
+def instance_scores_for_reporting(stats, *, background_known):
+    """Return scores with FP-dependent ratios undefined for unlabeled background."""
+    scores = stats.scores()
+    if not background_known:
+        scores.update({name: float("nan") for name in FP_DEPENDENT_SCORES})
+    return scores
+
+
 @dataclass
 class InstanceStatistics:
     """Additive chip statistics; pool before computing regional ratios."""
@@ -142,6 +155,15 @@ def instance_label_statistics(
 
     Disconnected pieces and pieces divided by ignored pixels count separately.
     """
+    return instance_label_matches(
+        y_true, labels, iou_threshold, ignore_index, reference_connectivity
+    )[-1]
+
+
+def instance_label_matches(
+    y_true, labels, iou_threshold=0.5, ignore_index=None, reference_connectivity=4
+):
+    """Return valid-domain reference/instance IDs, matched IDs and statistics."""
     truth, predicted = np.asarray(y_true), np.asarray(labels)
     if truth.ndim != 2 or truth.shape != predicted.shape:
         raise ValueError("truth and labels must be aligned 2D arrays")
@@ -159,7 +181,10 @@ def instance_label_statistics(
         structure=(np.ones((3, 3), dtype=int) if reference_connectivity == 8 else None),
     )
     pred = label_values(np.where(valid, predicted, 0), connectivity=1, background=0)
-    return _statistics_from_labels(gt, pred, ng, int(pred.max()), iou_threshold)
+    stats, gt_matches, pred_matches = _statistics_from_labels(
+        gt, pred, ng, int(pred.max()), iou_threshold, return_matches=True
+    )
+    return gt, pred, gt_matches, pred_matches, stats
 
 
 def _statistics_from_labels(

@@ -34,10 +34,9 @@ dependencies = [
   "fiboa-cli>=0.21,<0.22",
   "fsspec[http]>=2025.7,<2026",
   "geopandas>=1,<2",
-  "kornia>=0.8.2,<0.9",
-  "lightning>=2,<2.6",
+  "kornia>=0.8.2,<0.10",
+  "lightning>=2.6.6,<3",
   "matplotlib>=3.7,<4",
-  "notebook>=7,<8",
   "numpy>=1.24,<3",
   "odc-stac>=0.5,<1",
   "planetary-computer>=1,<2",
@@ -53,8 +52,8 @@ dependencies = [
   "tenacity>=9.1.2,<10",
   "tensorboard>=2.15,<3",
   "torch>=2.2,<3",
-  "torchgeo>=0.9,<1",
-  "torchvision>=0.17,<0.26",
+  "torchgeo>=0.10,<1",
+  "torchvision>=0.17,<0.30",
   "tqdm>=4.65,<5",
 ]
 optional-dependencies.all = [ "ftw-tools[delineate-anything,dev]" ]
@@ -62,8 +61,9 @@ optional-dependencies.delineate-anything = [ "ultralytics>=8.3.187,<9" ]
 optional-dependencies.dev = [
   "build",
   "hatchling",
+  "notebook>=7,<8",
   "pre-commit>=4,<=5",
-  "pytest>=7.4,<9",
+  "pytest>=9.0.3,<10",
   "pytest-xdist>=3.8,<4",
   "ruff>=0.1,<1",
   "twine",
@@ -109,4 +109,4 @@ ini_options.tmp_path_retention_policy = "failed"
 ini_options.markers = [
   "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
 ]
-ini_options.addopts = '-m "not integration" -n auto'
+ini_options.addopts = '-m "not integration" -n auto --dist loadgroup'

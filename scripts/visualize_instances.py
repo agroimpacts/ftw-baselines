@@ -6,6 +6,7 @@ Usage: python scripts/visualize_instances.py RUN_DIR
 import argparse
 import json
 import math
+from dataclasses import asdict
 from pathlib import Path
 
 import matplotlib
@@ -15,16 +16,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio
-from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.collections import LineCollection
+from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from scipy.ndimage import find_objects
 
 from ftw_tools.settings import has_labeled_background
-from ftw_tools.training.metrics import FP_DEPENDENT_SCORES
-from ftw_tools.training.metrics import instance_match_labels
-
+from ftw_tools.training.metrics import FP_DEPENDENT_SCORES, instance_match_labels
 
 RANKINGS = {
     "f1-recovery": ("object_f1", "recovery"),
@@ -96,7 +95,15 @@ def format_instance_scores(row):
     return left, right
 
 
-def object_status_labels(truth, pred, settings, expected_counts):
+def object_status_labels(
+    truth,
+    pred,
+    settings,
+    expected_counts,
+    *,
+    reference_labels=None,
+    expected_stats=None,
+):
     """Return component IDs classified using the saved chip's matching contract."""
     gt, predicted, gt_matches, pred_matches, stats = instance_match_labels(
         truth,
@@ -105,12 +112,20 @@ def object_status_labels(truth, pred, settings, expected_counts):
         ignore_index=settings.get("ignore_index"),
         reference_connectivity=settings.get("reference_connectivity", 4),
         prediction_connectivity=settings.get("prediction_connectivity", 4),
+        reference_labels=reference_labels,
     )
     if (stats.tp, stats.fp, stats.fn) != tuple(expected_counts):
         raise ValueError(
             "Recomputed TP/FP/FN differ from saved chip statistics: "
             f"{(stats.tp, stats.fp, stats.fn)} != {tuple(expected_counts)}"
         )
+    if expected_stats is not None:
+        for name, value in asdict(stats).items():
+            saved = getattr(expected_stats, f"stat_{name}")
+            if not np.isclose(value, saved, rtol=1e-9, atol=1e-6):
+                raise ValueError(
+                    f"Recomputed {name} differs from saved chip statistics"
+                )
 
     return {
         "TP": (predicted, pred_matches),
@@ -206,6 +221,9 @@ def render(
     """Plot chosen chips or ranked score gaps without changing their scores."""
     run_dir = Path(run_dir).expanduser().resolve()
     manifest = json.loads((run_dir / "manifest.json").read_text())
+    reference_mode = manifest["settings"].get("reference_mode", "semantic-components")
+    if reference_mode not in ("semantic-components", "dataset-instance-ids"):
+        raise ValueError(f"Unknown reference mode: {reference_mode}")
     normalization = manifest["settings"].get("normalization_constant", 3000.0)
     table = pd.read_parquet(run_dir / "chips.parquet")
     # Older artifacts may contain numerically finite, but non-evaluable
@@ -218,6 +236,13 @@ def render(
     ranked, pair = select_chips(
         table, ranking=ranking, metrics=metrics, chips=chips, order=order, limit=limit
     )
+    for row in ranked.itertuples():
+        if not all(
+            np.isfinite(value) for value in (row.stat_tp, row.stat_fp, row.stat_fn)
+        ):
+            raise ValueError(
+                f"Cannot visualize unscorable instance metrics: {row.country}/{row.aoi_id}"
+            )
     folder = (
         "selected"
         if chips
@@ -250,14 +275,37 @@ def render(
             axis.imshow(np.clip(rgb / normalization, 0, 1))
             axis.set_title(title)
         reference = None
+        reference_labels = None
         for axis, path, title in (
             (axes[2], row.reference, "Reference"),
             (axes[3], run_dir / row.prediction, "Raw prediction (0/1/2)"),
         ):
             with rasterio.open(path) as source:
                 classes = source.read(1)
+                if title == "Reference" and reference_mode == "dataset-instance-ids":
+                    instance_path = getattr(row, "reference_instances", None)
+                    if not isinstance(instance_path, str):
+                        instance_path = (
+                            Path(row.reference).parent.parent
+                            / "instance"
+                            / Path(row.reference).name
+                        )
+                    instance_path = run_dir / instance_path
+                    with rasterio.open(instance_path) as instance_source:
+                        if (
+                            instance_source.shape,
+                            instance_source.transform,
+                            instance_source.crs,
+                        ) != (source.shape, source.transform, source.crs):
+                            raise ValueError(
+                                "Reference instance grid differs from semantic reference"
+                            )
+                        reference_labels = orient_for_display(
+                            instance_source.read(1), source.transform
+                        )
                 classes = orient_for_display(classes, source.transform)
                 transform = source.transform
+                crs = source.crs
             axis.imshow(classes, cmap=palette, norm=norm, interpolation="nearest")
             if title == "Raw prediction (0/1/2)":
                 ignored = ~np.isin(reference, (0, 1, 2))
@@ -272,15 +320,31 @@ def render(
                 reference = classes
                 reference_shape = classes.shape
                 reference_transform = transform
+                reference_crs = crs
             else:
-                if classes.shape != reference_shape or transform != reference_transform:
+                if (classes.shape, transform, crs) != (
+                    reference_shape,
+                    reference_transform,
+                    reference_crs,
+                ):
                     raise ValueError("Reference and prediction grids differ")
                 statuses = object_status_labels(
                     reference,
                     classes,
                     manifest["settings"],
                     (row.stat_tp, row.stat_fp, row.stat_fn),
+                    reference_labels=reference_labels,
+                    expected_stats=row,
                 )
+                if reference_labels is not None:
+                    gt = statuses["FN"][0]
+                    axes[2].clear()
+                    axes[2].imshow(
+                        np.ma.masked_where(gt == 0, gt),
+                        cmap="nipy_spectral",
+                        interpolation="nearest",
+                    )
+                    axes[2].set_title("Reference (supplied instance IDs)")
                 axes[4].imshow(
                     np.full(reference.shape, 0.96),
                     cmap="gray",
@@ -306,7 +370,7 @@ def render(
                     )
         for axis in axes:
             axis.set_axis_off()
-        title = f"{row.country}/{row.aoi_id}"
+        title = f"{row.country}/{row.aoi_id} — {reference_mode}"
         if pair:
             title += f" — {pair[0]} − {pair[1]}: {row.gap:+.3f}"
         fig.suptitle(title, y=0.99)
@@ -337,13 +401,17 @@ def render(
         fig.subplots_adjust(left=0.01, right=0.99, top=0.84, bottom=0.24, wspace=0.02)
         for x, text in zip((0.04, 0.52), format_instance_scores(row)):
             fig.text(x, 0.055, text, family="monospace", fontsize=10, va="bottom")
-        if not has_labeled_background(row.country):
-            fig.text(
-                0.04,
-                0.015,
-                "Presence-only reference: FP, precision, F1, RQ and PQ not evaluable",
-                fontsize=9,
+        footer = []
+        if reference_labels is not None:
+            footer.append(
+                "Reference instance colors are arbitrary; semantic legend applies to raw prediction."
             )
+        if not has_labeled_background(row.country):
+            footer.append(
+                "Presence-only reference: FP, precision, F1, RQ and PQ not evaluable"
+            )
+        if footer:
+            fig.text(0.04, 0.015, "  ".join(footer), fontsize=9)
         fig.savefig(figures / f"{row.country}_{row.aoi_id}.png", dpi=150)
         plt.close(fig)
     return len(ranked)

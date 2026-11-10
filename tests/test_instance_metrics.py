@@ -14,8 +14,8 @@ from ftw_tools.training.metrics import (
     InstanceStatistics,
     instance_label_statistics,
     instance_match_labels,
-    instance_statistics,
     instance_scores_for_reporting,
+    instance_statistics,
 )
 from ftw_tools.training.pixel_evaluation import pixel_confusions, pixel_scores
 from scripts.audit_instance_chip import audit
@@ -206,3 +206,93 @@ def test_ignored_background_and_below_threshold_overlap_are_distinct():
     assert details["prediction_pixels_on_ignored_reference"] == 2
     assert details["reference_objects"][0]["best_iou"] == pytest.approx(1 / 3)
     assert details["reference_unmatched_at_most_1_2_4_10_pixels"]["10"] == 1
+
+
+def test_supplied_reference_ids_preserve_disconnected_field():
+    from ftw_tools.training.metrics import instance_label_matches
+
+    truth = np.array([[1, 0, 1]], dtype=np.uint8)
+    supplied = np.array([[2**63 + 7, 0, 2**63 + 7]], dtype=np.uint64)
+    predicted = np.array([[1, 0, 1]], dtype=np.int32)
+    gt, pred, _, _, stats = instance_label_matches(
+        truth, predicted, reference_labels=supplied
+    )
+    assert gt.tolist() == [[1, 0, 1]]
+    assert pred.tolist() == [[1, 0, 2]]  # prediction handling intentionally unchanged
+    assert stats.tp == 0  # strict IoU > .5: each piece covers half the field
+    assert stats.fn == 1
+    assert stats.fp == 2
+
+
+def test_supplied_reference_ids_preserve_touching_fields():
+    from ftw_tools.training.metrics import instance_statistics
+
+    truth = np.array([[1, 1]], dtype=np.uint8)
+    supplied = np.array([[7, 9]], dtype=np.uint64)
+    legacy = instance_statistics(truth, truth)
+    alternate = instance_statistics(truth, truth, reference_labels=supplied)
+    assert legacy.tp == 1
+    assert alternate.tp == 0
+    assert alternate.fn == 2
+
+
+def test_supplied_reference_validation_and_ignored_pixels():
+    from ftw_tools.training.metrics import instance_label_statistics
+
+    truth = np.array([[1, 255, 1, 0]], dtype=np.uint8)
+    predicted = np.array([[1, 0, 2, 0]], dtype=np.int32)
+    supplied = np.array([[8, 99, 8, 0]], dtype=np.uint64)
+    assert (
+        instance_label_statistics(truth, predicted, reference_labels=supplied).fn == 1
+    )
+    with pytest.raises(ValueError, match="foreground"):
+        instance_label_statistics(
+            truth, predicted, reference_labels=np.zeros_like(supplied)
+        )
+    with pytest.raises(ValueError, match="integer"):
+        instance_label_statistics(
+            truth, predicted, reference_labels=supplied.astype(float)
+        )
+
+
+def test_supplied_reference_empty_and_masked_ids():
+    from ftw_tools.training.metrics import instance_label_matches
+
+    truth = np.array([[0, 255]], dtype=np.uint8)
+    supplied = np.array([[0, 2**63 + 1]], dtype=np.uint64)
+    gt, _, _, _, stats = instance_label_matches(
+        truth, np.zeros_like(truth), reference_labels=supplied
+    )
+    assert not gt.any()
+    assert (stats.tp, stats.fp, stats.fn) == (0, 0, 0)
+
+
+def test_preserved_prediction_ids_survive_mask_disconnection():
+    from ftw_tools.training.metrics import instance_label_matches
+
+    truth = np.array([[1, 255, 1]], dtype=np.uint8)
+    reference = np.array([[7, 7, 7]], dtype=np.uint64)
+    predicted = np.array([[2**63 + 1] * 3], dtype=np.uint64)
+    _, split, _, _, old = instance_label_matches(
+        truth, predicted, reference_labels=reference
+    )
+    _, preserved, _, _, new = instance_label_matches(
+        truth, predicted, reference_labels=reference, prediction_identity="preserve-ids"
+    )
+    assert split.tolist() == [[1, 0, 2]]
+    assert preserved.tolist() == [[1, 0, 1]]
+    assert (old.tp, old.fp, old.fn) == (0, 2, 1)
+    assert (new.tp, new.fp, new.fn) == (1, 0, 0)
+
+
+def test_prediction_identity_validation_and_removed_ids():
+    from ftw_tools.training.metrics import instance_label_statistics
+
+    truth = np.array([[0, 255]], dtype=np.uint8)
+    predicted = np.array([[0, 100]], dtype=np.int32)
+    stats = instance_label_statistics(
+        truth, predicted, prediction_identity="preserve-ids"
+    )
+    assert (stats.tp, stats.fp, stats.fn) == (0, 0, 0)
+    with pytest.raises(ValueError, match="identity mode"):
+        instance_label_statistics(truth, predicted, prediction_identity="invalid")

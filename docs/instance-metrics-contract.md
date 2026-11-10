@@ -13,6 +13,16 @@ merge them. Both reference and prediction components default to 4-connectivity,
 as in the existing ftw-baselines Rasterio polygon extraction. Both can be set to
 8 for explicit offline comparisons. Invalid pixels separate components.
 
+Explicit offline alternatives do not change those defaults: `reference_labels=`
+preserves supplied positive reference IDs (requiring class-1 foreground equality
+on valid pixels), and `instance_label_statistics` / `instance_label_matches`
+accept `prediction_identity="preserve-ids"` instead of historical
+`"split-components"`. Preserved IDs are compacted after masking, not split by
+disconnection or ignored pixels; wholly masked IDs disappear. Component-based
+prediction methods keep their chosen connectivity. Record both identity modes
+when interpreting scores; see the [assessment](fixed-method-test-assessment.md)
+for the audit and offline CLI commands. Training call sites remain unchanged.
+
 Pairs qualify only at **IoU > threshold** (default 0.5). Assignment maximizes
 the number of qualifying pairs, then their total IoU, one-to-one. With the
 existing minimum threshold of 0.5, qualifying pairs of disjoint instances are

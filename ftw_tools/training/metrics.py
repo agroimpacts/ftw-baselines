@@ -10,7 +10,6 @@ from scipy.ndimage import label
 from scipy.optimize import linear_sum_assignment
 from skimage.measure import label as label_values
 
-
 # Without labeled background, unmatched predictions cannot reliably be called
 # false positives. Keep their counts for diagnostics, not FP-based scoring.
 FP_DEPENDENT_SCORES = ("object_precision", "object_f1", "rq", "pq")
@@ -86,18 +85,24 @@ def instance_statistics(
     prediction_connectivity=4,
     ignore_index=None,
     reference_connectivity=4,
+    *,
+    reference_labels=None,
 ):
     """Score class-1 components on reference-valid pixels (areas in pixels).
 
     Both masks default to 4-connectivity for historical object-count parity.
     Matching maximizes cardinality first, then IoU, with strict IoU > threshold.
-    No geospatial CRS is required.
+    No geospatial CRS is required. Optional reference_labels preserve supplied
+    field IDs rather than reconstructing reference components; defaults and
+    prediction extraction are unchanged.
     """
     if not 0 <= iou_threshold <= 1:
         raise ValueError("iou_threshold must be between 0 and 1")
     gt, predicted, ng, npred = _semantic_instance_labels(
         y_true, y_pred, prediction_connectivity, ignore_index, reference_connectivity
     )
+    if reference_labels is not None:
+        gt, ng = _supplied_reference_labels(y_true, reference_labels, ignore_index)
     return _statistics_from_labels(gt, predicted, ng, npred, iou_threshold)
 
 
@@ -108,6 +113,8 @@ def instance_match_labels(
     prediction_connectivity=4,
     ignore_index=None,
     reference_connectivity=4,
+    *,
+    reference_labels=None,
 ):
     """Return reference/prediction ID rasters, matched IDs and chip statistics.
 
@@ -119,6 +126,8 @@ def instance_match_labels(
     gt, predicted, ng, npred = _semantic_instance_labels(
         y_true, y_pred, prediction_connectivity, ignore_index, reference_connectivity
     )
+    if reference_labels is not None:
+        gt, ng = _supplied_reference_labels(y_true, reference_labels, ignore_index)
     stats, gt_matches, pred_matches = _statistics_from_labels(
         gt, predicted, ng, npred, iou_threshold, return_matches=True
     )
@@ -149,21 +158,48 @@ def _semantic_instance_labels(
 
 
 def instance_label_statistics(
-    y_true, labels, iou_threshold=0.5, ignore_index=None, reference_connectivity=4
+    y_true,
+    labels,
+    iou_threshold=0.5,
+    ignore_index=None,
+    reference_connectivity=4,
+    *,
+    reference_labels=None,
+    prediction_identity="split-components",
 ):
     """Score integer instance IDs against class-1 references on valid pixels.
 
-    Disconnected pieces and pieces divided by ignored pixels count separately.
+    By default predicted disconnected pieces and pieces divided by ignored pixels
+    count separately. prediction_identity="preserve-ids" retains their membership
+    after masking instead. References use class-1 components unless reference_labels are
+    supplied explicitly, in which case positive field IDs are preserved.
     """
     return instance_label_matches(
-        y_true, labels, iou_threshold, ignore_index, reference_connectivity
+        y_true,
+        labels,
+        iou_threshold,
+        ignore_index,
+        reference_connectivity,
+        reference_labels=reference_labels,
+        prediction_identity=prediction_identity,
     )[-1]
 
 
 def instance_label_matches(
-    y_true, labels, iou_threshold=0.5, ignore_index=None, reference_connectivity=4
+    y_true,
+    labels,
+    iou_threshold=0.5,
+    ignore_index=None,
+    reference_connectivity=4,
+    *,
+    reference_labels=None,
+    prediction_identity="split-components",
 ):
-    """Return valid-domain reference/instance IDs, matched IDs and statistics."""
+    """Return valid-domain labels, matches and statistics with explicit identity rules.
+
+    Prediction identity defaults to historical four-connected splitting. Explicit
+    preserve-ids keeps surviving positive IDs, including disconnected pixels.
+    """
     truth, predicted = np.asarray(y_true), np.asarray(labels)
     if truth.ndim != 2 or truth.shape != predicted.shape:
         raise ValueError("truth and labels must be aligned 2D arrays")
@@ -180,11 +216,49 @@ def instance_label_matches(
         (truth == 1) & valid,
         structure=(np.ones((3, 3), dtype=int) if reference_connectivity == 8 else None),
     )
-    pred = label_values(np.where(valid, predicted, 0), connectivity=1, background=0)
+    if reference_labels is not None:
+        gt, ng = _supplied_reference_labels(truth, reference_labels, ignore_index)
+    masked = np.where(valid, predicted, 0)
+    if prediction_identity == "split-components":
+        pred = label_values(masked, connectivity=1, background=0)
+    elif prediction_identity == "preserve-ids":
+        pred, _ = _compact_positive_ids(masked)
+    else:
+        raise ValueError("Unknown prediction identity mode")
     stats, gt_matches, pred_matches = _statistics_from_labels(
         gt, pred, ng, int(pred.max()), iou_threshold, return_matches=True
     )
     return gt, pred, gt_matches, pred_matches, stats
+
+
+def _supplied_reference_labels(truth, reference_labels, ignore_index):
+    """Compact positive field IDs without splitting disconnected pieces.
+
+    Supplied foreground must equal class 1 on the valid domain. Zero remains
+    background even when raster metadata declares it nodata. Large uint64 IDs
+    are supported without allocating by the maximum original ID.
+    """
+    truth, supplied = np.asarray(truth), np.asarray(reference_labels)
+    if supplied.shape != truth.shape or supplied.dtype.kind not in "iu":
+        raise ValueError("Reference IDs must be aligned integer labels")
+    if np.any(supplied < 0):
+        raise ValueError("Reference IDs must be nonnegative")
+    valid = np.isin(truth, (0, 1, 2))
+    if ignore_index is not None:
+        valid &= truth != ignore_index
+    if np.any(((supplied > 0) != (truth == 1)) & valid):
+        raise ValueError("Reference ID foreground differs from semantic class 1")
+    masked = np.where(valid, supplied, 0)
+    return _compact_positive_ids(masked)
+
+
+def _compact_positive_ids(masked):
+    """Relabel positive IDs densely without changing field membership."""
+    ids = np.unique(masked[masked > 0])
+    dense = np.zeros(masked.shape, dtype=np.int64)
+    foreground = masked > 0
+    dense[foreground] = np.searchsorted(ids, masked[foreground]) + 1
+    return dense, len(ids)
 
 
 def _statistics_from_labels(

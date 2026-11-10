@@ -655,3 +655,77 @@ def test_probability_artifacts_follow_partial_batch(monkeypatch, tmp_path):
             np.testing.assert_allclose(scores.read().sum(axis=0), 1)
     manifest = json.loads((run / "manifest.json").read_text())
     assert manifest["settings"]["save_probabilities"] is True
+
+
+@pytest.mark.parametrize("misaligned", [False, True])
+def test_visualizer_honors_supplied_reference_ids(tmp_path, monkeypatch, misaligned):
+    record = _chip(tmp_path, "ids")
+    truth = np.array([[1, 0], [0, 1]], dtype=np.uint8)
+    supplied = np.array([[700, 0], [0, 700]], dtype=np.uint64)
+    with rasterio.open(record["mask"], "r+") as dst:
+        dst.write(truth, 1)
+        profile = dst.profile.copy()
+    instance_path = tmp_path / "germany/label_masks/instance/ids.tif"
+    instance_path.parent.mkdir(parents=True)
+    profile.update(dtype="uint64")
+    if misaligned:
+        profile["transform"] = profile["transform"] * Affine.translation(1, 0)
+    with rasterio.open(instance_path, "w", **profile) as dst:
+        dst.write(supplied, 1)
+    run = tmp_path / "rescored"
+    (tmp_path / "checkpoint").write_bytes(b"test")
+    writer = EvaluationArtifacts(
+        run,
+        checkpoint=tmp_path / "checkpoint",
+        dataset=tmp_path,
+        settings={
+            "countries": ["germany"],
+            "reference_mode": "dataset-instance-ids",
+            "prediction_connectivity": 4,
+            "remap_boundary": False,
+            "split": "test",
+        },
+    )
+    stats = instance_statistics(truth, truth, reference_labels=supplied)
+    writer.add(record, truth, truth, truth, stats)
+    writer.finish({})
+    captured = []
+    original = visualize_instances.plt.subplots
+
+    def capture(*args, **kwargs):
+        fig, axes = original(*args, **kwargs)
+        captured.append((fig, axes))
+        return fig, axes
+
+    monkeypatch.setattr(visualize_instances.plt, "subplots", capture)
+    if misaligned:
+        with pytest.raises(ValueError, match="instance grid"):
+            render(run, chips=["germany/ids"])
+        for fig, _ in captured:
+            plt.close(fig)
+        return
+    assert render(run, chips=["germany/ids"]) == 1
+    fig, axes = captured[0]
+    assert "supplied instance IDs" in axes[2].get_title()
+    assert "dataset-instance-ids" in fig._suptitle.get_text()
+    assert axes[2].images[0].get_array().compressed().tolist() == [1, 1]
+    text = "\n".join(item.get_text() for item in fig.texts)
+    assert "Object precision / recall / F1" in text
+    assert "TP / FP / FN" in text
+    assert "0 / 2 / 1" in text
+
+
+def test_outline_verification_checks_more_than_match_counts():
+    truth = np.array([[1, 0, 1]], dtype=np.uint8)
+    supplied = np.array([[7, 0, 7]], dtype=np.uint64)
+    stats = instance_statistics(truth, truth, reference_labels=supplied)
+    from dataclasses import asdict
+
+    saved = SimpleNamespace(
+        **{f"stat_{key}": value for key, value in asdict(stats).items()}
+    )
+    saved.stat_truth_area = 99
+    with pytest.raises(ValueError, match="truth_area"):
+        object_status_labels(
+            truth, truth, {}, (0, 2, 1), reference_labels=supplied, expected_stats=saved
+        )

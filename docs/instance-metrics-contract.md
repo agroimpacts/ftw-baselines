@@ -20,8 +20,8 @@ accept `prediction_identity="preserve-ids"` instead of historical
 `"split-components"`. Preserved IDs are compacted after masking, not split by
 disconnection or ignored pixels; wholly masked IDs disappear. Component-based
 prediction methods keep their chosen connectivity. Record both identity modes
-when interpreting scores; see the [assessment](fixed-method-test-assessment.md)
-for the audit and offline CLI commands. Training call sites remain unchanged.
+when interpreting scores; see the [identity investigation](research/object-identity.md)
+and [offline CLI commands](offline-instance-evaluation.md). Training call sites remain unchanged.
 
 Pairs qualify only at **IoU > threshold** (default 0.5). Assignment maximizes
 the number of qualifying pairs, then their total IoU, one-to-one. With the
@@ -47,7 +47,7 @@ sufficient statistics; when one side alone is empty, defined object ratios are
 zero, and PQ is zero. When both are empty, PQ is NaN. SQ without matches is NaN.
 Pool statistics across chips, batches, workers or regions *before* taking ratios;
 do not average chip scores. Chip-boundary objects are not stitched across chips.
-Metre-based polygon descriptors will require a suitable projected CRS separately.
+Metre-based polygon descriptors require a suitable projected CRS separately.
 
 `instance_statistics().scores()` returns mathematical ratios without a dataset
 policy. In offline and method-comparison **reporting**, the countries outside
@@ -60,7 +60,7 @@ runs containing any presence-only country. `object_recall`, `sq` when
 matches exist, and threshold-free coverage/split/merge diagnostics remain
 available. Do not interpret presence-only pixel precision/IoU or support as
 background-validated precision either. Earlier outputs are not retroactively
-changed. See [audit instructions](offline-instance-evaluation.md#verify-the-original-object-count-helper).
+changed. See [historical helper verification](research/archive/original-helper-verification.md).
 
 Definitions adapted from the local `../evaluation/metric_package/src/field_shape_metrics/`
 snapshot (`evaluation.py`, `ftw_input.py`); this implementation uses raster

@@ -9,8 +9,8 @@ import pytest
 from affine import Affine
 from rasterio.crs import CRS
 
-from scripts import compare_instance_methods as comparison_module
-from scripts.compare_instance_methods import _pixel_area_m2
+from scripts.instance_evaluation import compare_instance_methods as comparison_module
+from scripts.instance_evaluation.compare_instance_methods import _pixel_area_m2
 
 
 def test_projected_pixel_area():

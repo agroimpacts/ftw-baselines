@@ -84,6 +84,7 @@ build.exclude = [
   "configs/",
   "EXPERIMENTS.md",
   "notebooks/",
+  "research/",
   "scripts/",
   "tests/",
   "uv.lock",

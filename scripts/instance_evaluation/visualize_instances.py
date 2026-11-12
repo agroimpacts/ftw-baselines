@@ -1,6 +1,6 @@
 """Render selected offline test chips without rerunning the model.
 
-Usage: python scripts/visualize_instances.py RUN_DIR
+Usage: python -m scripts.instance_evaluation.visualize_instances RUN_DIR
 """
 
 import argparse

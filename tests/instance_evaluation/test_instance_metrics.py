@@ -18,7 +18,7 @@ from ftw_tools.training.metrics import (
     instance_statistics,
 )
 from ftw_tools.training.pixel_evaluation import pixel_confusions, pixel_scores
-from scripts.audit_instance_chip import audit
+from scripts.instance_evaluation.audit_instance_chip import audit
 
 
 def test_diagonal_contact_and_connectivity():

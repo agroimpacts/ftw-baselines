@@ -1496,6 +1496,13 @@ def inference_run_instance_segmentation_all(
     show_default=True,
     help="Thin boundaries before polygonization using Zhang-Suen thinning algorithm.",
 )
+@click.option(
+    "--method",
+    type=click.Choice(["semantic", "ftw-2e"]),
+    default="semantic",
+    show_default=True,
+    help="FTW_2E requires ftw-tools[fbp] and three-band probabilities. Uses whole-scene FBP; stride only tiles vectorization. Cleanup distances are metres for this route.",
+)
 def inference_polygonize(
     input,
     out,
@@ -1512,7 +1519,42 @@ def inference_polygonize(
     erode_dilate_raster,
     dilate_erode_raster,
     thin_boundaries,
+    method,
 ):
+    if method == "ftw-2e":
+        from ftw_tools.postprocess.instance_polygonize import polygonize_fbp
+
+        if any(
+            (
+                softmax_threshold is not None,
+                merge_adjacent is not None,
+                erode_dilate,
+                dilate_erode,
+                erode_dilate_raster,
+                dilate_erode_raster,
+                thin_boundaries,
+            )
+        ):
+            raise click.UsageError(
+                "Legacy threshold, morphology and merging options are incompatible with FTW_2E"
+            )
+        if stride == 0:
+            raise click.UsageError("FTW_2E vectorization stride must be positive")
+        try:
+            polygonize_fbp(
+                input,
+                out,
+                overwrite=overwrite,
+                stride=stride,
+                simplify=simplify,
+                min_size=min_size,
+                max_size=max_size,
+                close_interiors=close_interiors,
+            )
+        except (ImportError, ValueError, FileExistsError) as error:
+            raise click.ClickException(str(error)) from error
+        return
+
     from ftw_tools.postprocess.polygonize import polygonize
 
     polygonize(

@@ -58,6 +58,7 @@ dependencies = [
 ]
 optional-dependencies.all = [ "ftw-tools[delineate-anything,dev]" ]
 optional-dependencies.delineate-anything = [ "ultralytics>=8.3.187,<9" ]
+optional-dependencies.fbp = [ "ftw-fbp[fast]==0.2.0" ]
 optional-dependencies.dev = [
   "build",
   "hatchling",

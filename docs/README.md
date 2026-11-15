@@ -12,6 +12,8 @@ These pages separate **using the software**, **research findings**, and
 | Save predictions, inspect chips and compare post-processing methods | [Offline evaluation](offline-instance-evaluation.md) |
 | Export field polygons and understand their geometry measures | [Polygon export and descriptors](polygon-export-and-descriptors.md) |
 | Build descriptor tables, summarize regions and study shape relationships | [Geometry analysis](geometry-analysis.md) |
+| Install independent geometry tooling or reproduce pre-extraction runs | [Geometry extraction and reproduction](geometry-extraction-and-reproduction.md) |
+| Select published prediction maps for descriptor complementarity research | [2024 descriptor pilot](descriptor-pilot.md) |
 | Explore relationships between reference-dependent scores | [Chip-score analysis](chip-score-analysis.md) |
 
 Commands use `uv run python -m …` from the **repository root**. This keeps imports
@@ -35,9 +37,12 @@ The existing reference metrics have been implemented and analyzed, but the
 reference-metric research is **not finished**: boundary Chamfer distance still
 needs methodological testing and a complementarity analysis.
 
-The descriptor/export workflow has been checked on one Germany chip containing
-13 predicted polygons. Larger-area analysis tools have synthetic test coverage,
-but have not yet been used for a real regional study.
+The descriptor/export workflow was initially checked on one Germany chip with
+13 predicted polygons. The [published-map pilot](descriptor-pilot.md) now has
+schema-3 tables and colored maps for 59,350 assigned primary fields plus 69
+separate diagnostic fields. [Initial descriptive associations/PCA](research/descriptor-complementarity.md)
+are complete; disagreement review, spatial uncertainty and practical feature
+selection remain outstanding. No real regional-summary study has been run.
 
 **Reference coverage matters:** Brazil, India, Kenya and Rwanda have presence-only
 labels, not fully labeled background. Their object precision, F1/RQ and PQ are

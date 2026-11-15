@@ -125,7 +125,7 @@ for PCA rather than including every related column.
 
 ```python
 import geopandas as gpd
-from ftw_tools.postprocess.descriptors import describe_polygons
+from ftw_geometry.core.descriptors import describe_polygons
 
 fields = gpd.read_file("existing_fields.gpkg")
 describe_polygons(fields).to_csv("existing_fields.descriptors.csv", index=False)

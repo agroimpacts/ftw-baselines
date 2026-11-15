@@ -7,6 +7,7 @@
 | Supported offline evaluation | `scripts/instance_evaluation/` | `tests/instance_evaluation/` |
 | Geometry workflows and implementation | `scripts/geometry/`, `ftw_tools/postprocess/` | `tests/geometry/` |
 | Active instance-metric research | `research/instance_metrics/` | `tests/research/instance_metrics/` |
+| Published-map descriptor pilot | `research/geometry/` | `tests/research/geometry/` |
 | Preliminary component-review workflow | `research/instance_metrics/archive/` | `tests/research/instance_metrics/archive/` |
 
 Other repository tests retain their existing locations. Archiving a study does
@@ -20,7 +21,7 @@ On this macOS checkout use:
 
 ```sh
 uv run --extra dev --extra fbp --with scikit-learn pytest --noconftest -n 0 \
-  tests/instance_evaluation tests/geometry tests/research/instance_metrics
+  tests/instance_evaluation tests/geometry tests/research/instance_metrics tests/research/geometry
 ```
 
 The existing `tests/conftest.py` session-finish hook calls `os._exit(0)` before

@@ -4,13 +4,25 @@ These tools describe existing final polygons. They do not run inference, change
 boundaries or evaluate prediction accuracy. Descriptor formulas are in the
 [export guide](polygon-export-and-descriptors.md#descriptor-schema-30).
 
-The software has synthetic integration tests. The only real-data descriptor
-validation so far is the 13-polygon Germany example; **no real larger-area study
-or regional correlation/PCA findings have been produced**.
+The software has synthetic integration tests. Real-data work now includes the
+13-polygon Germany example and the [published-map pilot](descriptor-pilot.md),
+with initial full-table field associations/PCA described in its
+[report](research/descriptor-complementarity.md). No real regional-summary study
+or spatial-bootstrap finding has been produced. The pilot's inference-free,
+multi-CRS analysis is separate from the bounded-sample workflow below.
 
 Run commands from the repository root. Before a study, choose the source data,
 surveyed boundaries, common metric CRS, whole-field versus fragment interpretation,
 duplicate/edge policies, gap radius and spatial-block size.
+
+The implementation is now in the independent local `ftw-geometry` package.
+Use `uv sync --extra geometry` or install `./research/geometry` separately without
+the model stack. See [installation and historical reproduction](geometry-extraction-and-reproduction.md).
+
+For the adopted published-map study, start with the
+[2024 descriptor pilot](descriptor-pilot.md): seven geographic zones, reproducible
+window selection and a separate map-review/descriptor-complementarity workflow.
+It uses existing production polygons rather than requiring this repository's exporter.
 
 ## 1. Declare inputs and policies
 
@@ -60,7 +72,7 @@ miss companion data.
 ## 2. Build or resume descriptor tables
 
 ```sh
-uv run python -m scripts.geometry.describe_field_dataset geometry-inputs.json \
+uv run --extra geometry python -m scripts.geometry.describe_field_dataset geometry-inputs.json \
   --out_dir geometry-dataset --batch_size 10000
 ```
 
@@ -78,7 +90,7 @@ orientation components. Batches and SQLite identity checks bound generation memo
 ## 3. Summarize surveyed regions
 
 ```sh
-uv run python -m scripts.geometry.analyze_field_descriptors regions \
+uv run --extra geometry python -m scripts.geometry.analyze_field_descriptors regions \
   geometry-dataset surveyed-regions.gpkg --region_id region_id \
   --edge_policy exclude --gap_radius_m 100 --max_fields 100000 \
   --out_dir geometry-regions
@@ -118,7 +130,7 @@ directory after failure. Continental runtime/memory performance is unmeasured.
 ## 4. Study descriptor relationships
 
 ```sh
-uv run python -m scripts.geometry.analyze_field_descriptors correlations \
+uv run --extra geometry python -m scripts.geometry.analyze_field_descriptors correlations \
   --dataset geometry-dataset --group_column source_id --level field \
   --features area_m2 circularity elongation solidity rectangularity convex_hull_index hole_area_fraction \
   --log_features area_m2 \

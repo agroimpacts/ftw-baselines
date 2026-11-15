@@ -2,7 +2,7 @@
 
 import argparse
 
-from ftw_tools.postprocess.descriptor_dataset import build_dataset
+from ftw_geometry.core.dataset import build_dataset
 
 
 def main():

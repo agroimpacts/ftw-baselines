@@ -4,11 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
-from ftw_tools.postprocess.descriptor_analysis import (
-    correlate_tables,
-    summarize_regions,
-)
-from ftw_tools.postprocess.descriptor_dataset import dataset_parts
+from ftw_geometry.core.analysis import correlate_tables, summarize_regions
+from ftw_geometry.core.dataset import dataset_parts
 
 
 def main():

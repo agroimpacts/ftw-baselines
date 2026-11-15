@@ -1,0 +1,26 @@
+{
+  "study_id": "ftw2e-descriptor-pilot-v1",
+  "year": 2024,
+  "seed": "20261112",
+  "grid_size_m": 10000,
+  "min_spacing_m": 10000,
+  "windows_per_zone": 3,
+  "reserves_per_zone": 6,
+  "min_crop_fraction": 0.10,
+  "min_valid_fraction": 0.99,
+  "worldcover_version": "v200/2021",
+  "inventory_url": "https://data.source.coop/ftw/global-data-2e/raster/2024/items.parquet",
+  "inventory_sha256": "22df32f3501738488d8192f88bea63ba1b01864cc9799bb6749603899b3d352d",
+  "vector_collection_url": "https://data.source.coop/ftw/global-data-2e/vector/2024/collection.json",
+  "country_url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/9380cca83db5f9aef52d5e762765100745f84b27/geojson/ne_10m_admin_0_countries.geojson",
+  "country_sha256": "239eec57ac17f100a11e2536cffc56752c318b50ae765b0918ff7aab4ce8f255",
+  "zones": [
+    {"zone_id": "california", "country": "USA", "bounds": [-122.0, 38.0, -121.0, 39.5], "metric_crs": "EPSG:32610"},
+    {"zone_id": "netherlands", "country": "NLD", "bounds": [4.3, 51.5, 5.9, 53.0], "metric_crs": "EPSG:32631"},
+    {"zone_id": "normandy", "country": "FRA", "bounds": [-1.6, 48.6, -0.2, 49.4], "metric_crs": "EPSG:32630"},
+    {"zone_id": "bahia", "country": "BRA", "bounds": [-46.5, -13.5, -44.5, -11.0], "metric_crs": "EPSG:32723"},
+    {"zone_id": "rwanda", "country": "RWA", "bounds": [30.15, -2.3, 30.85, -1.2], "metric_crs": "EPSG:32736"},
+    {"zone_id": "cambodia", "country": "KHM", "bounds": [104.5, 10.8, 106.0, 12.5], "metric_crs": "EPSG:32648"},
+    {"zone_id": "vietnam", "country": "VNM", "bounds": [105.0, 9.5, 106.5, 11.0], "metric_crs": "EPSG:32648"}
+  ]
+}

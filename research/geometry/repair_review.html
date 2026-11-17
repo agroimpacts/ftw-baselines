@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Targeted repair previews — no corrections applied</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+body{margin:0;font:14px system-ui,sans-serif;color:#222}header{padding:12px;background:#eee}
+main{display:grid;grid-template-columns:420px 1fr;height:82vh}aside{padding:12px;overflow:auto}#map{height:100%}
+select,input,button,textarea{padding:6px;margin:4px 0;max-width:100%;box-sizing:border-box}textarea{width:100%;height:65px}
+pre{white-space:pre-wrap;font-size:12px}.warning{color:#863b00}h3{margin-bottom:6px}
+@media(max-width:800px){main{display:block;height:auto}aside{max-height:65vh}#map{height:65vh}}
+</style>
+<header><b>Targeted split-set and fragment-union previews</b>
+<div class="warning">PREVIEW ONLY · No exclusions, splits or merges applied. Review preferences are not application approvals.</div>
+<label><input type="checkbox" id="showImagery" checked> Imagery</label>
+<label><input type="checkbox" id="showPreview" checked> Proposed result</label>
+<button id="export">Export review preferences</button> <span id="status" role="status"></span></header>
+<main><aside>
+<label>Case <select id="case"></select></label><br>
+<label>Alternative <select id="proposal"></select></label>
+<h3 id="title"></h3><div id="reason"></div>
+<p>Original parents: <b style="color:#e76f00">orange outlines</b>. Proposed children: colored fills. Coordinated cuts: <b style="color:#009999">cyan</b>.</p>
+<button id="whole">Whole field</button> <button id="cutsZoom">Zoom to cut set</button>
+<pre id="evidence"></pre><div class="warning" id="limits"></div>
+<h3>Your assessment</h3>
+<label>Reviewer <input id="reviewer" placeholder="Name or initials"></label><br>
+<select id="decision" aria-label="Proposal assessment"><option value="pending">Not reviewed</option><option value="prefer">Prefer this exact preview for further review</option><option value="reject">Reject this preview</option><option value="changes_needed">Needs changes / unresolved</option></select>
+<textarea id="notes" placeholder="Boundary/cut placement, imagery source/date, and reasoning"></textarea>
+<button id="record">Record assessment</button>
+<p>Record before changing cases or alternatives, then export before closing. Labels are held only in this tab.</p>
+<h3>Deferred</h3><div id="deferred"></div>
+<p>Imagery dates vary and may not match 2024. Geometry conservation is not proof of correct field boundaries.</p>
+</aside><div id="map"></div></main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const data=__REPAIR_PAYLOAD__;
+const $=id=>document.getElementById(id), reviews=new Map(), palette=['#3182bd','#31a354','#984ea3','#e41a1c'];
+let currentCase=null,currentProposal=null,parentsLayer=null,previewLayer=null,cutsLayer=null,dirty=false;
+const map=L.map('map',{preferCanvas:true});
+const imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,attribution:'Tiles © Esri, Maxar, Earthstar Geographics, GIS User Community'}).addTo(map);
+L.geoJSON(data.originals,{style:{color:'#aaa',weight:1,fill:false}}).addTo(map);
+for(const c of data.cases){const o=document.createElement('option');o.value=c.case_id;o.textContent=c.case_id.replaceAll('10SFH_0_0-','')+' · '+c.repair_subtype;$('case').appendChild(o)}
+$('deferred').textContent='Boundary completion: '+data.interpretation.deferred_boundary_completion.join(', ')+'. Eight reviewed exclusion labels are carried forward without application.';
+function selectCase(id){
+ currentCase=data.cases.find(c=>c.case_id===id);$('case').value=id;
+ $('proposal').replaceChildren();
+ for(const pid of currentCase.proposal_ids){const p=data.proposals.find(p=>p.proposal_id===pid),o=document.createElement('option');o.value=pid;o.textContent=pid.slice(0,10)+' · '+p.children_wkt.length+' result record(s)';$('proposal').appendChild(o)}
+ if(!currentCase.proposal_ids.length){const o=document.createElement('option');o.value='';o.textContent='No supported proposal — abstain';$('proposal').appendChild(o)}
+ selectProposal(currentCase.proposal_ids[0]||null);
+}
+function selectProposal(id){
+ currentProposal=data.proposals.find(p=>p.proposal_id===id)||null;$('proposal').value=id||'';
+ for(const layer of [parentsLayer,previewLayer,cutsLayer])if(layer)map.removeLayer(layer);
+ parentsLayer=L.geoJSON({type:'FeatureCollection',features:data.originals.features.filter(f=>currentCase.parent_keys.includes(f.properties.field_key))},{style:{color:'#e76f00',weight:4,dashArray:'6 4',fill:false}}).addTo(map);
+ const geometries=data.previews.features.filter(f=>f.properties.proposal_id===id);
+ previewLayer=L.geoJSON({type:'FeatureCollection',features:geometries.filter(f=>f.properties.role==='preview_child')},{style:f=>({color:palette[f.properties.preview_index%palette.length],weight:2,fillOpacity:.25})});
+ cutsLayer=L.geoJSON({type:'FeatureCollection',features:geometries.filter(f=>f.properties.role==='cut_set')},{style:{color:'#00ffff',weight:6}});
+ if($('showPreview').checked){previewLayer.addTo(map);cutsLayer.addTo(map)}
+ map.fitBounds(parentsLayer.getBounds(),{padding:[50,50],maxZoom:19});
+ $('title').textContent=currentCase.repair_subtype+' · '+currentCase.status;$('reason').textContent=currentCase.reason;
+ if(currentProposal){const p=currentProposal;
+  $('evidence').textContent='Proposal: '+p.proposal_id+'\nResult geometry: '+p.children_wkt.length+' record(s)\n100 m context complete: '+p.context_100m_complete+'\nChecks:\n'+JSON.stringify(p.checks,null,2)+'\nMethod details:\n'+JSON.stringify(p.details,null,2)+'\nSaved-neighbor audit:\n'+JSON.stringify(p.neighbor_audit,null,2)+'\nPreview areas (ha): '+p.child_descriptors.map(d=>d?(d.area_m2/10000).toFixed(3):'multipart — no single-field descriptor').join(', ');
+  $('limits').textContent=(!p.context_100m_complete?'Exterior polygon context is incomplete; obtain it before correction. ':'')+(p.details?.component_count>1?'Exact union remains multipart (the parents share no boundary segment). No gap was filled. A single-field/multipart policy and descriptor definition remain unresolved.':'Shape-derived cuts require imagery review; this is not a validated automatic repair.');
+ }else{$('evidence').textContent='Expected fields from your review: '+currentCase.expected_child_count_from_review+'\nRetained erosion lobe counts: '+currentCase.erosion_profile.map(p=>p.retained_lobe_area_fractions.length).join(', ');$('limits').textContent='No arbitrary internal boundary is invented. Image-guided placement is needed.'}
+ const saved=reviews.get(id||currentCase.case_id);$('decision').value=saved?.assessment||'pending';$('notes').value=saved?.notes||'';
+}
+$('case').onchange=()=>selectCase($('case').value);$('proposal').onchange=()=>selectProposal($('proposal').value||null);
+$('whole').onclick=()=>map.fitBounds(parentsLayer.getBounds(),{padding:[50,50],maxZoom:19});
+$('cutsZoom').onclick=()=>{if(currentProposal?.cuts_wkt)map.fitBounds(cutsLayer.getBounds(),{padding:[60,60],maxZoom:20})};
+$('showImagery').onchange=()=>{$('showImagery').checked?imagery.addTo(map):map.removeLayer(imagery)};
+$('showPreview').onchange=()=>{for(const l of [previewLayer,cutsLayer])$('showPreview').checked?l.addTo(map):map.removeLayer(l)};
+$('record').onclick=()=>{if(!$('reviewer').value.trim()){$('status').textContent='Enter reviewer name or initials.';return}const id=currentProposal?.proposal_id||currentCase.case_id;reviews.set(id,{case_id:currentCase.case_id,proposal_id:currentProposal?.proposal_id||null,source_geometry_sha256:currentProposal?.source_geometry_sha256||null,assessment:$('decision').value,reviewer:$('reviewer').value.trim(),notes:$('notes').value,reviewed_at:new Date().toISOString(),application_authorized:false});dirty=true;$('status').textContent=reviews.size+' assessments recorded; export to save.'};
+$('export').onclick=()=>{const output={run_id:data.run_id,application_authorized:false,reviews:[...reviews.values()]},blob=new Blob([JSON.stringify(output,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='repair-preview-review-'+data.run_id+'.json';a.click();URL.revokeObjectURL(url);dirty=false;$('status').textContent='Preferences exported. No application authorized.'};
+window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue=''}});
+selectCase(data.cases[0].case_id);
+</script></html>

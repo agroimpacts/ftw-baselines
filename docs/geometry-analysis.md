@@ -7,9 +7,11 @@ boundaries or evaluate prediction accuracy. Descriptor formulas are in the
 The software has synthetic integration tests. Real-data work now includes the
 13-polygon Germany example and the [published-map pilot](descriptor-pilot.md),
 with initial full-table field associations/PCA described in its
-[report](research/descriptor-complementarity.md). No real regional-summary study
-or spatial-bootstrap finding has been produced. The pilot's inference-free,
-multi-CRS analysis is separate from the bounded-sample workflow below.
+[report](research/descriptor-complementarity.md). Real regional profiles are now
+available for all 21 primary windows in the
+[landscape report](research/regional-landscape-profiles.md), including edge-guarded
+spacing sensitivity. No spatial-bootstrap finding has been produced. The pilot's
+multi-CRS analyses are separate from the bounded-sample workflow below.
 
 Run commands from the repository root. Before a study, choose the source data,
 surveyed boundaries, common metric CRS, whole-field versus fragment interpretation,

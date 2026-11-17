@@ -371,7 +371,29 @@ The pivot diagnostic is excluded. All fields are used, with no spatial confidenc
 intervals, significance tests or raw-orientation correlations. Reproduce with
 `python -m research.geometry.analyze_descriptor_pilot DESCRIPTOR_DIR --out_dir NEW_DIR`,
 then `python -m research.geometry.report_descriptor_pilot NEW_DIR --descriptor_dir DESCRIPTOR_DIR`.
-Visual disagreement and spatial-sensitivity work remain outstanding.
+The user has reviewed disagreement examples; a written synthesis and
+spatial-sensitivity work remain outstanding.
+
+### Regional landscape profiles
+
+The next phase summarizes all 21 primary windows as regional observations,
+retaining the empty Rwanda window and excluding the handpicked Bahia diagnostic.
+It includes every shape descriptor, size/supporting dimensions, holes,
+narrow-neck prevalence, orientation, counts/density, coverage/overlaps and
+edge-guarded positive spacing. See the [regional methods and findings](research/regional-landscape-profiles.md).
+
+```sh
+uv run --extra geometry python -m research.geometry.summarize_descriptor_pilot \
+  ~/working/ftw/metrics/descriptor-pilot/ftw2e-descriptor-pilot-v1/polygon-review-2024 \
+  ~/working/ftw/metrics/descriptor-pilot/ftw2e-descriptor-pilot-v1/descriptor-review-2024 \
+  --out_dir ~/working/ftw/metrics/descriptor-pilot/ftw2e-descriptor-pilot-v1/regional-landscape-2024-v2
+```
+
+Use a fresh output directory. Main spacing summaries compare 50/100/250 m radii
+and exclude fields without complete within-window search context, because the
+original extracts contain no exterior halo. Unknown release seams remain explicit.
+Rwanda omissions limit mapped density, coverage and spacing interpretation. No
+reference evaluation, repairs or Zambia analysis are part of this command.
 
 The live 2024 release documents a newer extraction recipe than the fixed
 `ftw-fbp==0.2.0` `FTW_2E` preset assessed here: mean field probability 0.10,

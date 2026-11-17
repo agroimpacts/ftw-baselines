@@ -28,7 +28,7 @@ def single_polygon(geometry):
 
 
 def common_scales(primary):
-    """Shared full ranges from primary fields only; ratio bounds are theoretical."""
+    """Shared full ranges from the supplied population; ratio bounds are theoretical."""
     scales = {}
     for key in [
         "area_m2",
@@ -66,7 +66,13 @@ def common_scales(primary):
     return scales
 
 
-def descriptor_map(window, frame, shared_scales=None):
+def descriptor_map(
+    window,
+    frame,
+    shared_scales=None,
+    *,
+    scale_population="primary fields only (diagnostic excluded)",
+):
     columns = [
         "id",
         "area_m2",
@@ -83,6 +89,7 @@ def descriptor_map(window, frame, shared_scales=None):
     ]
     data = frame[columns].to_json().replace("<", "\\u003c")
     boundary = json.dumps(window).replace("<", "\\u003c")
+    population = json.dumps(scale_population).replace("<", "\\u003c")
     name = window["properties"]["window_id"]
     return f"""<!doctype html><meta charset="utf-8"><title>{name} descriptors</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -90,10 +97,10 @@ def descriptor_map(window, frame, shared_scales=None):
 <header><b>{name}</b> — {len(frame)} assigned fields; {window["properties"]["role"]}<br>
 <select id="feature"></select> <select id="scale"><option value="common">Common across sites</option><option value="local">Local contrast</option></select> <span id="legend"></span><br>
 <input id="fieldSearch" placeholder="Exact field ID"><button id="findField">Find field</button><button id="clearField">Clear highlight</button> <span id="searchStatus"></span><br>
-Common scales exclude the diagnostic from estimation; local contrast uses window percentiles. Narrow neck: false blue, true red.
+Common scales use the population named in the legend; local contrast uses window percentiles. Narrow neck: false blue, true red.
 Missing values are gray. Esri imagery dates vary; this is not accuracy evaluation.</header><div id="map"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
-const data={data}, boundary={boundary}, shared={json.dumps(shared_scales or {})};const map=L.map('map',{{preferCanvas:true}});
+const data={data}, boundary={boundary}, shared={json.dumps(shared_scales or {})}, scalePopulation={population};const map=L.map('map',{{preferCanvas:true}});
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:19,attribution:'Tiles © Esri, Maxar, Earthstar Geographics, GIS User Community'}}).addTo(map);
 const keys=['area_m2','perimeter_m','circularity','elongation','solidity','rectangularity','convex_hull_index','hole_count','hole_area_fraction','narrow_neck'];
 const select=document.getElementById('feature');keys.forEach(k=>{{const o=document.createElement('option');o.value=k;o.textContent=k;select.appendChild(o)}});
@@ -102,7 +109,7 @@ const categorical=key==='narrow_neck';
 let lo=values.length?values[Math.floor((values.length-1)*.05)]:null,hi=values.length?values[Math.floor((values.length-1)*.95)]:null;
 let fallback=false;if(values.length&&lo===hi&&values[0]!==values[values.length-1]){{lo=values[0];hi=values[values.length-1];fallback=true;}}
 const common=document.getElementById('scale').value!=='local'&&shared[key];let transform=v=>v;let label=fallback?'full-range fallback':'local 5th–95th percentiles; tails clipped';
-if(common){{lo=common.lo;hi=common.hi;transform=common.transform==='log'?Math.log:common.transform==='log1p'?Math.log1p:v=>v;label='common '+common.transform+(common.transform==='linear'&&lo===0&&hi===1?'; fixed 0–1 bounds':'; primary-derived bounds');}}
+if(common){{lo=common.lo;hi=common.hi;transform=common.transform==='log'?Math.log:common.transform==='log1p'?Math.log1p:v=>v;label='common '+common.transform+(common.transform==='linear'&&lo===0&&hi===1?'; fixed 0–1 bounds':'; bounds from '+scalePopulation);}}
 document.getElementById('legend').textContent=!values.length?'No mapped fields / no descriptor observations':categorical?'False = blue; True = red':lo===hi?'Constant value: '+lo.toPrecision(4)+' (blue)':'Blue → red: '+lo.toPrecision(4)+' → '+hi.toPrecision(4)+' ('+label+')';
 if(fields)map.removeLayer(fields);fields=L.geoJSON(data,{{style:f=>{{const v=f.properties[key];const missing=v===null||v===undefined||!Number.isFinite(Number(v));const t=categorical?(v===true||v===1?1:0):hi===lo?0:Math.max(0,Math.min(1,(transform(Number(v))-transform(lo))/(transform(hi)-transform(lo))));return {{color:'#222',weight:.5,fillOpacity:.7,fillColor:missing?'#999':`hsl(${{240*(1-t)}},85%,55%)`}}}},onEachFeature:(f,l)=>{{l.on('mouseover',()=>{{const el=document.createElement('span');el.textContent=f.properties.id+' | '+key+': '+f.properties[key];l.bindTooltip(el).openTooltip()}})}}}}).addTo(map)}};
 function focusField(id){{const feature=data.features.find(f=>String(f.properties.id)===String(id));const status=document.getElementById('searchStatus');
@@ -223,9 +230,7 @@ def run(review, out):
     (out / "describe_descriptor_pilot.py").write_bytes(Path(__file__).read_bytes())
     (out / "descriptors-source.py").write_bytes(
         Path(
-            __import__(
-                "ftw_geometry.core.descriptors", fromlist=["__file__"]
-            ).__file__
+            __import__("ftw_geometry.core.descriptors", fromlist=["__file__"]).__file__
         ).read_bytes()
     )
     write_json(

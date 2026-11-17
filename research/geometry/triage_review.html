@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Four-outcome field triage — proposals only</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+body{margin:0;font:14px system-ui,sans-serif;color:#222}header{padding:10px;background:#f4f4f4}
+main{display:grid;grid-template-columns:390px 1fr;height:78vh}aside{overflow:auto;padding:12px}#map{height:100%}
+button,select,input,textarea{margin:4px 0;padding:6px;max-width:100%;box-sizing:border-box}textarea{width:100%;height:70px}
+pre{white-space:pre-wrap;font-size:12px}table{border-collapse:collapse;width:100%;font-size:12px}td,th{border:1px solid #ccc;padding:4px}
+.warning{color:#843700}.badge{padding:3px;border-radius:3px}.selected{font-weight:bold}#status{padding:6px}
+@media(max-width:800px){main{grid-template-columns:1fr;height:auto}#map{height:60vh}aside{max-height:65vh}}
+</style>
+<header><b>Four-outcome polygon triage · proposals only</b><div id="summary"></div>
+<div class="warning">No fields are deleted or repaired. Shape routes are unvalidated hypotheses; imagery dates vary. Review labels do not authorize application.</div>
+<label>Show <select id="filter"><option value="all">All outcomes</option><option value="exclude">Exclude candidates</option><option value="repair">Repair candidates</option><option value="retain">Retain candidates</option><option value="abstain">Abstentions</option><option value="user">Conversation examples</option></select></label>
+<label><input type="checkbox" id="imagery" checked> Imagery</label>
+<label><input type="checkbox" id="context" checked> Extract context</label>
+<button id="download">Export review labels</button><span id="status" role="status"></span></header>
+<main><aside>
+<button id="previous">← Previous</button> <button id="next">Next →</button><div id="position"></div>
+<select id="candidate" aria-label="Candidate field" style="width:100%"></select>
+<h3 id="outcome"></h3><div id="reason"></div><pre id="evidence"></pre>
+<h4>Erosion diagnostics</h4><table><thead><tr><th>Distance (m)</th><th>Retained lobe areas (% parent)</th></tr></thead><tbody id="erosion"></tbody></table>
+<h4>Cut alternatives</h4><div id="cuts"></div>
+<p>Each cut independently partitions the original. Alternatives are not a combined repair. Eroded lobe fractions are not proposed child areas.</p>
+<h4>Record your assessment</h4>
+<label>Reviewer <input id="reviewer" placeholder="Name or initials"></label><br>
+<label>Outcome <select id="decision"><option value="pending">Not reviewed</option><option value="exclude">Exclude candidate</option><option value="repair">Repair candidate</option><option value="retain">Valid single field — retain</option><option value="abstain">Uncertain — abstain</option></select></label>
+<textarea id="notes" placeholder="Evidence, imagery date/source if known, and reasoning"></textarea>
+<button id="record">Record review label</button>
+<p class="warning">Record each label before navigating. Recorded labels are held only in this tab until exported. No changes are applied. Separate approval is required before future correction.</p>
+</aside><div id="map"></div></main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const data=__TRIAGE_PAYLOAD__;
+const $=id=>document.getElementById(id), colors={exclude:'#d73027',repair:'#7b3294',retain:'#008837',abstain:'#d89000'};
+const key=p=>JSON.stringify([String(p.collection),String(p.id)]);
+const records=new Map(data.candidates.map(c=>[c.field_key,c])), features=new Map(data.fields.features.map(f=>[key(f.properties),f]));
+const reviews=new Map();let dirty=false,current=null,filtered=[],highlight=null,cutLayer=null;
+const map=L.map('map',{preferCanvas:true});
+const imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles © Esri, Maxar, Earthstar Geographics, GIS User Community'}).addTo(map);
+const context=L.geoJSON(data.context,{style:{color:'#aaa',weight:1,fill:false}}).addTo(map);
+const boundary=L.geoJSON(data.window,{style:{color:'#f33',weight:2,dashArray:'6 4',fill:false}}).addTo(map);
+const fields=L.geoJSON(data.fields,{style:f=>({color:colors[records.get(key(f.properties)).proposed_outcome],weight:1.5,fillOpacity:.12}),onEachFeature:(f,l)=>l.on('click',()=>focus(key(f.properties)))}).addTo(map);
+map.fitBounds(boundary.getBounds());
+$('summary').textContent=data.window.properties.window_id+' · '+data.candidates.length+' unchanged fields · '+Object.entries(data.counts).map(([k,v])=>k+': '+v).join(' | ');
+function focus(k){
+ const c=records.get(k);if(!c)return;current=k;$('candidate').value=k;
+ if(highlight)map.removeLayer(highlight);if(cutLayer)map.removeLayer(cutLayer);
+ highlight=L.geoJSON(features.get(k),{style:{color:'#00ffff',weight:4,fill:false}}).addTo(map);map.fitBounds(highlight.getBounds(),{padding:[70,70],maxZoom:19});
+ $('outcome').textContent='Proposed: '+c.proposed_outcome.toUpperCase();$('outcome').style.color=colors[c.proposed_outcome];$('reason').textContent=c.reason;
+ $('position').textContent=(filtered.findIndex(r=>r.field_key===k)+1)+' / '+filtered.length;
+ $('evidence').textContent=c.collection+' / '+c.id+'\nArea: '+c.area_ha.toFixed(3)+' ha; width: '+c.rectangle_width_m.toFixed(1)+' m\nElongation: '+c.elongation.toFixed(2)+'; circularity: '+c.circularity.toFixed(3)+'\nSolidity: '+c.solidity.toFixed(3)+'; holes: '+c.hole_count+'\nNeck screen: '+c.narrow_neck+'\n100 m context complete: '+c.context_100m_complete+'\nWindow edge clearance: '+c.window_edge_clearance_m.toFixed(1)+' m\nSource seams: unknown\nConversation: '+c.conversation_evidence;
+ $('erosion').replaceChildren();for(const p of c.erosion_profile){const tr=document.createElement('tr');for(const value of [p.distance_m.toFixed(2),p.retained_lobe_area_fractions.map(a=>(100*a).toFixed(1)).join(', ')||'None']){const td=document.createElement('td');td.textContent=value;tr.appendChild(td)}$('erosion').appendChild(tr)}
+ const alternatives=data.cuts.features.filter(f=>f.properties.field_key===k);$('cuts').replaceChildren();
+ if(!alternatives.length)$('cuts').textContent='No validated geometric cut proposed. A repair route may still need manual cut placement.';
+ const saved=reviews.get(k);for(const f of alternatives){const p=f.properties;const label=document.createElement('label');label.style.display='block';const radio=document.createElement('input');radio.type='radio';radio.name='cut';radio.value=p.proposal_id;radio.checked=saved?.selected_proposal_id===p.proposal_id;label.appendChild(radio);label.appendChild(document.createTextNode(' '+p.proposal_id.slice(0,8)+' · '+p.length_m.toFixed(2)+' m · preview children '+p.child_area_fractions.map(x=>(100*x).toFixed(1)+'%').join(' / ')));$('cuts').appendChild(label)}
+ cutLayer=L.geoJSON({type:'FeatureCollection',features:alternatives},{style:{color:'#ff36b2',weight:4,dashArray:'4 3'},onEachFeature:(f,l)=>{const el=document.createElement('span');el.textContent=f.properties.proposal_id+' · '+f.properties.length_m.toFixed(2)+' m';l.bindTooltip(el)}}).addTo(map);
+ $('decision').value=saved?.review_outcome||'pending';$('notes').value=saved?.notes||'';
+}
+function refresh(){const value=$('filter').value;filtered=data.candidates.filter(c=>value==='all'||(value==='user'?c.conversation_evidence!=='none':c.proposed_outcome===value));filtered.sort((a,b)=>(b.conversation_evidence!=='none')-(a.conversation_evidence!=='none')||b.area_ha-a.area_ha);$('candidate').replaceChildren();for(const c of filtered){const option=document.createElement('option');option.value=c.field_key;option.textContent=c.id+' · '+c.proposed_outcome+(reviews.has(c.field_key)?' ✓':'');$('candidate').appendChild(option)}fields.eachLayer(l=>{const c=records.get(key(l.feature.properties));l.setStyle({opacity:filtered.includes(c)?1:.15,fillOpacity:filtered.includes(c)?.12:0})});if(filtered.length)focus(filtered[0].field_key);else{$('position').textContent='No candidates for this outcome';current=null}}
+$('candidate').onchange=()=>focus($('candidate').value);$('filter').onchange=refresh;
+for(const [id,delta] of [['previous',-1],['next',1]])$(id).onclick=()=>{if(!filtered.length)return;const index=filtered.findIndex(c=>c.field_key===current);focus(filtered[(index+delta+filtered.length)%filtered.length].field_key)};
+$('imagery').onchange=()=>{$('imagery').checked?imagery.addTo(map):map.removeLayer(imagery)};
+$('context').onchange=()=>{$('context').checked?context.addTo(map):map.removeLayer(context)};
+$('record').onclick=()=>{if(!current)return;if(!$('reviewer').value.trim()){$('status').textContent='Enter reviewer name or initials.';return}const c=records.get(current),cut=document.querySelector('input[name="cut"]:checked');reviews.set(current,{field_key:current,collection:c.collection,id:c.id,source_geometry_sha256:c.source_geometry_sha256,proposed_outcome:c.proposed_outcome,review_outcome:$('decision').value,selected_proposal_id:$('decision').value==='repair'?(cut?.value||null):null,reviewer:$('reviewer').value.trim(),notes:$('notes').value,reviewed_at:new Date().toISOString(),application_authorized:false});dirty=true;$('status').textContent=reviews.size+' review labels recorded; export to save.'};
+$('download').onclick=()=>{const value={schema_version:'1.0',run_id:data.run_id,algorithm:data.version,window_id:data.window.properties.window_id,application_authorized:false,reviews:[...reviews.values()]};const blob=new Blob([JSON.stringify(value,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='triage-review-'+data.run_id+'.json';a.click();URL.revokeObjectURL(url);dirty=false;$('status').textContent='Review labels exported; no application authorized.'};
+window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue=''}});
+refresh();
+</script></html>

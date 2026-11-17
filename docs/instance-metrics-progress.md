@@ -1,6 +1,6 @@
 # Current status: instance metrics and map descriptors
 
-Updated **2026-11-14**. Start with the [documentation index](README.md).
+Updated **2026-11-15**. Start with the [documentation index](README.md).
 
 ## What is available
 
@@ -11,7 +11,9 @@ Updated **2026-11-14**. Start with the [documentation index](README.md).
 | Metric complementarity | Existing eight-score analysis complete; boundary-distance extension still outstanding |
 | Optional FTW_2E 0.2.0 polygon export | Implemented and validated on one real chip; defaults unchanged |
 | Final-polygon descriptors | Schema 3.0 implemented; [definitions](polygon-export-and-descriptors.md) |
-| Larger-area geometry tools | Implemented and tested on synthetic data, not yet applied to a real regional study |
+| Regional landscape profiles | Complete for all 21 primary FTW windows; all shape descriptors, coverage/density, orientation and edge-guarded spacing |
+| Lubushi–Bahia illustration | Complete for 5,559 Mapping Africa Zambia fields and 69 FTW diagnostic fields; separate from the primary pilot |
+| Shape-assisted triage / narrow-neck repair pilot | Four-outcome California demo plus targeted split-set/union previews; 17 user assessments; no exclusions or repairs applied |
 | Published-map descriptor pilot | 21 primary windows plus 42 reserves selected and validated; [specification and selected IDs](descriptor-pilot.md) |
 
 The reference-metric research is **not finished**. Completed results establish
@@ -26,9 +28,9 @@ differences. The current artifact directory is
 `~/working/ftw/metrics/test/prue-b7_ftw-2e_0.2.0_assessment/germany/polygon-validation/g1_00003_16_schema3/`.
 See [validation details](research/polygon-export-validation.md).
 
-The published-map pilot now has real field-level descriptors. There is still no
-regional-summary study or spatial-bootstrap finding. Initial full-table
-descriptor correlations/PCA are now available in the
+The published-map pilot now has real field-level descriptors and regional
+landscape profiles. There is still no spatial-bootstrap finding. Initial full-table
+descriptor correlations/PCA are available in the
 [pilot report](research/descriptor-complementarity.md). Software test counts are
 not empirical study sample sizes.
 
@@ -60,13 +62,15 @@ All 28 single-component containers were unwrapped without boundary/ID changes;
 the empty Rwanda window remains explicit. No primary collection-qualified ID is
 duplicated. Artifact hashes and sampled remeasurements were validated; 62 geometry
 tests passed at generation. Initial descriptive correlations/PCA now use all
-59,350 primary records; 66 geometry tests pass. Descriptor-disagreement visual
-review, spatial sensitivity and practical feature-selection findings remain
-outstanding; see [the initial analysis](research/descriptor-complementarity.md).
+59,350 primary records; 66 geometry tests pass. The user has reviewed descriptor
+disagreements; a written interpretation, spatial sensitivity and practical
+feature-selection findings remain outstanding; see
+[the initial analysis](research/descriptor-complementarity.md).
 An interactive disagreement-review index now links 105 pair examples (93 unique
 fields) to exact-ID zoom/highlights in descriptor maps, under the sibling
-`disagreement-review-2024/index.html`. This enables review; it does not mean the
-examples have been interpreted or validated.
+`disagreement-review-2024/index.html`. The user subsequently reviewed these
+examples and described contrasts among circularity, rectangularity, solidity and
+hull-perimeter ratio. Their written synthesis and accuracy validation remain open.
 
 Study-specific sampling, configuration and pilot commands now live in
 `research/geometry/`, with tests in `tests/research/geometry/`. No pilot code remains
@@ -83,23 +87,69 @@ unchanged. The archived pre-extraction checkout passes 67 tests; current code
 passes 69, including package-isolation/compatibility checks. All 546 frozen
 artifact hashes verify unchanged. See [reproduction safeguards](geometry-extraction-and-reproduction.md).
 
+Regional profiles now summarize all 21 primary windows and 59,350 assigned fields
+in `regional-landscape-2024-v2/` under the pilot artifact root. Tables include every
+shape descriptor, size/supporting dimensions, holes, narrow-neck prevalence,
+orientation, counts/density, clipped union coverage and overlaps. The figures
+compare window quantiles and area-weighted means and link to existing descriptor
+maps. The empty Rwanda window is retained and the diagnostic is excluded.
+Positive spacing compares 50/100/250 m search radii, retaining only fields with
+complete within-window search context because the extracts have no exterior halo.
+One unassigned context polygon becomes self-touching after projection; it is
+retained without repair and has valid clipped coverage geometry. All 217 output
+hashes and 84 recorded input hashes verify; 73 geometry/research tests pass.
+Independent checks reproduce 480 descriptor summaries, 42 coverage values and
+60 sampled gaps. See [findings and limitations](research/regional-landscape-profiles.md).
+
+The user approved the exact Lubushi window. The separate Zambia–Bahia illustration
+is complete under `~/working/ftw/metrics/landscape-illustrations/lubushi-bahia-2024-v3/`.
+Lubushi's median field area is 0.157 ha versus 35.165 ha in Bahia (about 225×).
+Median circularities are 0.748 and 0.435. Bahia's eight largest polygons have
+nearly circular hulls, but interior holes and indentations substantially increase
+perimeter in several cases. Additional boundary-component diagnostics and outline
+examples explain this without redefining circularity or filtering the population.
+All 46 comparison output hashes and nine input hashes verify; all original Bahia
+descriptors and the 217 primary regional artifact hashes remain unchanged.
+There are now 82 passing geometry/research tests. See the
+[illustration report](research/lubushi-bahia-landscape-illustration.md).
+
 ## Outstanding work
 
 1. **Boundary distance:** test object-boundary Chamfer distance using standard
    matching and investigate best-IoU pairing; then assess complementarity with
    existing scores. No definition is selected or implemented yet.
-2. **Published-map descriptor pilot:** the seven-zone 2024 draw is complete.
-   Published polygons are retrieved and user-reviewed; assigned-field descriptors
-    and colored maps are generated; initial correlations/PCA are complete. Review
-    disagreement examples, investigate spatial sensitivity and assess practical
-    complementarity. See [the pilot](descriptor-pilot.md).
-   Future reference evaluation needs separate provenance/matching checks. Regional
-   gap/density studies, spatial-block scale and larger-area application remain
-    additional work. Initial correlations are exploratory, not global findings.
+2. **Published-map descriptor pilot:** the draw, polygon retrieval, field
+   descriptors/maps, initial correlations/PCA and regional profiles are complete.
+   Write up user-reviewed disagreements, investigate spatial uncertainty/window
+   scale/preprocessing sensitivity and assess practical complementarity. Regional
+   spacing-radius sensitivity is available; it does not establish spatial-block
+   uncertainty or continental performance. Initial findings remain exploratory.
+3. **Cross-source landscape interpretation:** the approved Lubushi–Bahia
+   illustration is complete. Detailed Mapping Africa processing thresholds and
+   local completeness remain provenance limits; broader landscape/system
+   generalization requires additional sampling and evidence.
+4. **Shape-assisted triage / narrow-neck repair-agent pilot:** user-approved extension
+   now has a proposal-only demo in `california_61_424`, presenting exclusion, repair,
+   retain and abstention routes for 419 unchanged fields, with review-label export
+   and independent diagnostic cut alternatives. Seventeen user assessments now feed
+   a separate targeted review: coordinated split sets for two priority parents,
+   initial abstention on a three-field case lacking three erosion cores, and an exact
+   fragment union whose multipart identity remains unresolved. Boundary completion
+   is deferred. A later user-annotated screenshot now supports a separate, approximate
+   three-child preview for `8617`; exact cut placement still needs review. The user
+   preferred the other two splits and rejected the fragment union for now.
+   No correction/apply stage exists. Review exact proposals before
+   any versioned exclusions or child polygons
+   with lineage/recomputed properties. Original maps remain unchanged. See the
+   [demo report and validation limits](research/shape-triage-pilot.md).
+5. **Geometry–segmentation performance:** later reference-based research on shape
+   and detection/delineation outcomes; provenance and matching checks come first.
+6. **Landscape synthesis/queries:** develop interpretable combinations of shape
+   measures; validated error-risk queries depend on the later performance study.
 
 The [to-do list](instance-metrics-backlog.md) gives the details and deferred ideas.
-These are separate outstanding tracks, not a commitment to run either study as
-part of documentation maintenance.
+The backlog records the agreed staging and remaining work; it does not authorize
+running deferred studies as part of documentation maintenance.
 
 ## Important limits
 

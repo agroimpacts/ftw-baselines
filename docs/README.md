@@ -41,8 +41,16 @@ The descriptor/export workflow was initially checked on one Germany chip with
 13 predicted polygons. The [published-map pilot](descriptor-pilot.md) now has
 schema-3 tables and colored maps for 59,350 assigned primary fields plus 69
 separate diagnostic fields. [Initial descriptive associations/PCA](research/descriptor-complementarity.md)
-are complete; disagreement review, spatial uncertainty and practical feature
-selection remain outstanding. No real regional-summary study has been run.
+are complete. The user has reviewed disagreements; a written synthesis, spatial
+uncertainty and practical feature selection remain outstanding.
+[Regional landscape profiles](research/regional-landscape-profiles.md) now summarize
+all 21 primary windows, including all shape descriptors and edge-guarded spacing.
+The [Lubushi–Bahia illustration](research/lubushi-bahia-landscape-illustration.md)
+is complete for the approved Zambia window and separate Bahia pivot diagnostic.
+It shows a strong size contrast and how internal boundaries reduce circularity
+even in near-circular pivots. The backlog stages
+a narrow-neck repair-agent pilot, geometry–segmentation performance
+research and interpretable landscape synthesis/queries.
 
 **Reference coverage matters:** Brazil, India, Kenya and Rwanda have presence-only
 labels, not fully labeled background. Their object precision, F1/RQ and PQ are

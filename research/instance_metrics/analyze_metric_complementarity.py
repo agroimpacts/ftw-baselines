@@ -54,10 +54,10 @@ PAIRS = (
 )
 
 
-def dimensionality(frame, scope):
+def dimensionality(frame, scope, *, metrics=METRICS):
     """PCA on complete, nonconstant standardized scores; entropy effective rank."""
-    finite = frame[list(METRICS)].replace([np.inf, -np.inf], np.nan).dropna()
-    columns = [name for name in METRICS if finite[name].nunique() > 1]
+    finite = frame[list(metrics)].replace([np.inf, -np.inf], np.nan).dropna()
+    columns = [name for name in metrics if finite[name].nunique() > 1]
     if len(finite) < 3 or len(columns) < 2:
         return [], []
     x = StandardScaler().fit_transform(finite[columns])
@@ -90,10 +90,10 @@ def dimensionality(frame, scope):
     return components, loadings
 
 
-def disagreements(frame, scope):
+def disagreements(frame, scope, *, pairs=PAIRS, lower_is_better=()):
     """Use within-scope ranks; exclude ties at the quartile boundaries."""
     results, examples = [], []
-    for first, second in PAIRS:
+    for first, second in pairs:
         pair = (
             frame[["country", "aoi_id", first, second]]
             .replace([np.inf, -np.inf], np.nan)
@@ -102,7 +102,11 @@ def disagreements(frame, scope):
         )
         if len(pair) < 4:
             continue
-        ranks = pair[[first, second]].rank(pct=True)
+        oriented = pair[[first, second]].copy()
+        for name in lower_is_better:
+            if name in oriented:
+                oriented[name] = -oriented[name]
+        ranks = oriented.rank(pct=True)
         low = ranks <= 0.25
         high = ranks > 0.75
         extreme = (low[first] & high[second]) | (high[first] & low[second])
@@ -126,9 +130,12 @@ def disagreements(frame, scope):
     return results, examples
 
 
-def predictability(frame, scope, grouped=False):
+def predictability(
+    frame, scope, grouped=False, *, metrics=METRICS, predictor_metrics=None
+):
     """Out-of-fold linear and nonlinear reconstruction, without score imputation."""
-    finite = frame[["country", *METRICS]].replace([np.inf, -np.inf], np.nan).dropna()
+    required = list(dict.fromkeys([*metrics, *(predictor_metrics or metrics)]))
+    finite = frame[["country", *required]].replace([np.inf, -np.inf], np.nan).dropna()
     if len(finite) < 20 or (grouped and finite.country.nunique() < 5):
         return []
     splitter = (
@@ -138,8 +145,8 @@ def predictability(frame, scope, grouped=False):
     )
     folds = list(splitter.split(finite, groups=finite.country if grouped else None))
     results = []
-    for target in METRICS:
-        predictors = [name for name in METRICS if name != target]
+    for target in metrics:
+        predictors = [name for name in (predictor_metrics or metrics) if name != target]
         x, y = finite[predictors].to_numpy(), finite[target].to_numpy()
         if np.std(y) == 0:
             continue

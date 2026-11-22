@@ -115,9 +115,15 @@ There are now 82 passing geometry/research tests. See the
 
 ## Outstanding work
 
-1. **Boundary distance:** test object-boundary Chamfer distance using standard
-   matching and investigate best-IoU pairing; then assess complementarity with
-   existing scores. No definition is selected or implemented yet.
+1. **Boundary distance:** experimental offline threshold-matched and best-IoU
+   Chamfer plus best-IoU reference coverage are implemented in research, with
+   FTP-definition cross-checks. Both reference modes and expanded complementarity
+   completed for all 25 saved country runs, with initial findings and outline-review
+   artifacts available. Independent imagery review and resolution/edge sensitivity
+   remain open. Geographic spacing is an explicit local-metre extension
+   of FTP's square-pixel definition. Training metrics/defaults are unchanged; no
+   decision to promote best-IoU into the shared API has been made. See the
+   [implementation checkpoint](research/boundary-chamfer.md).
 2. **Published-map descriptor pilot:** the draw, polygon retrieval, field
    descriptors/maps, initial correlations/PCA and regional profiles are complete.
    Write up user-reviewed disagreements, investigate spatial uncertainty/window

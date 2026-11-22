@@ -12,10 +12,14 @@ and Denmark was removed. A stronger precision/support association did **not**
 survive Denmark exclusion. These results do not establish that any score should
 be dropped or that disagreement identifies a validated mapping error.
 
+The new [Chamfer extension](boundary-chamfer.md) reports an eleven-measure rerun
+in both reference modes, including shared-population and Denmark controls. The
+eight-score findings below remain historical and unchanged.
+
 The initial analysis and supplied-ID follow-up are complete for these eight
-scores. Reference-metric research remains open: [boundary Chamfer distance](../instance-metrics-backlog.md#ref-1-boundary-chamfer-distance)
-still needs methodological testing and a complementarity analysis. No boundary
-distance is included in the results below. These are local research findings,
+scores. Reference-metric research remains open: the [boundary Chamfer extension](boundary-chamfer.md)
+now has initial complementarity findings, with further validation outstanding. No boundary
+distance is included in the historical results below. These are local research findings,
 not an externally published assessment.
 
 ## Reproduce the existing analysis

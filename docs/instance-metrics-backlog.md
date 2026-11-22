@@ -8,6 +8,11 @@ studies or changing defaults automatically.
 
 **Outstanding reference-metric research.** Compare boundary discrepancy using:
 
+Experimental implementation, completed full-rerun analyses and outline-review
+artifacts are recorded in the [Chamfer report](research/boundary-chamfer.md).
+Independent imagery review, resolution/edge sensitivity and the decision about
+promoting best-IoU into shared metrics remain outstanding.
+
 1. **Standard object matching:** the existing one-to-one, strict-IoU matching
    rule. Distance then describes boundary accuracy among successfully matched
    objects, not all predictions/references. Report matching coverage alongside it.

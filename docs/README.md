@@ -22,6 +22,11 @@ working consistently for tools in different directories. See the
 
 ## Research findings
 
+Start with [What the reference-based measures tell us about field maps](research/reference-metrics-synthesis.md):
+one illustrated synthesis of detection, overlap, split/merge and boundary-distance
+results, including both reference definitions. Earlier stage reports support this
+account rather than provide separate introductions.
+
 The [research index](research/README.md) links the FTW_2E 0.2.0 assessment,
 object-identity investigation, metric-complementarity study and export-validation
 report. These are local research reports, **not claims of external publication**.
@@ -34,8 +39,8 @@ See [status](instance-metrics-progress.md), [research and development to-dos](in
 and [scope and design decisions](instance-metrics-implementation-plan.md).
 
 The existing reference metrics have been implemented and analyzed, but the
-reference-metric research is **not finished**: boundary Chamfer distance still
-needs methodological testing and a complementarity analysis.
+reference-metric research is **not finished**: Chamfer complementarity analyses
+are complete, while independent imagery review and resolution/edge sensitivity remain open.
 
 The descriptor/export workflow was initially checked on one Germany chip with
 13 predicted polygons. The [published-map pilot](descriptor-pilot.md) now has

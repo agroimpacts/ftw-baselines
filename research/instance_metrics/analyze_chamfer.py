@@ -21,6 +21,7 @@ from scipy.spatial.distance import squareform
 
 from ftw_tools.settings import has_labeled_background
 from ftw_tools.training.metrics import (
+    chamfer_statistics,
     instance_scores_for_reporting,
     instance_statistics,
 )
@@ -32,7 +33,6 @@ from research.instance_metrics.analyze_metric_complementarity import (
     disagreements,
     predictability,
 )
-from research.instance_metrics.boundary_chamfer import chamfer_statistics
 from scripts.instance_evaluation.compare_instance_methods import read_reference_ids
 
 NEW = ("threshold_chamfer_m", "best_iou_chamfer_m", "best_iou_reference_coverage")

@@ -1,5 +1,9 @@
 # How much different instance metrics tell us
 
+For the consolidated interpretation and figures, read the
+[reference-metric synthesis](reference-metrics-synthesis.md). This page preserves
+the historical analysis and reproduction details.
+
 ## Question and main findings
 
 Do the existing instance scores mostly repeat each other, or do they describe

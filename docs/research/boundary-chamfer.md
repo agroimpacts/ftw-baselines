@@ -1,8 +1,18 @@
 # Boundary Chamfer implementation checkpoint
 
-The independent offline implementation is in
-`research/instance_metrics/boundary_chamfer.py`. It does not change training
-metrics, prediction extraction or existing analysis outputs.
+Read the [reference-metric synthesis](reference-metrics-synthesis.md) for the
+combined scientific interpretation. This page provides supporting methods and
+the detailed execution record.
+
+The shared API is now `ftw_tools.training.metrics.boundary_chamfer` and
+`chamfer_statistics`, implemented in `ftw_tools/training/_boundary_metrics.py`.
+The old research import is a compatibility adapter. These explicit functions do
+not change training defaults, prediction extraction or existing scores. All
+15,610 saved rows were recomputed through the shared API, with all eleven scores
+and instance statistics matching within numerical tolerance. Verification took
+258 seconds; the record is `chamfer-integrated-verification-v1.json` beside the
+original analysis directory. The integrated API supports the existing matching,
+connectivity, ignore-index and reference-ID options.
 
 ## FTP cross-check
 
@@ -48,7 +58,7 @@ establish equivalence of complete evaluation pipelines.
 
 ## Experimental offline integration
 
-The implementation remains in research, pending evidence about best-IoU's value.
+The analyses remain research utilities, separate from the shared metric API.
 `research.instance_metrics.analyze_chamfer` now rescores the recorded baseline
 cohort in both reference modes, retaining original runs and rasters. It requires
 the existing strict 0.5, four-connected test contract. Supplied-ID foreground
@@ -177,5 +187,5 @@ and coverage terciles. Small or constant strata produce undefined correlations;
 NumPy/pandas emitted warnings during generation, and these entries remain NaN,
 not zero. They do not support reliable subgroup claims. Detailed country/size
 interpretation, independent imagery review, grid-resolution/edge sensitivity and
-a decision about shared-metrics promotion remain open. No changes were made to
-`ftw_tools/training/metrics.py` or training defaults.
+further practical validation remain open. Both Chamfers are now exposed through
+the shared metrics module; automatic training computation remains unchanged.

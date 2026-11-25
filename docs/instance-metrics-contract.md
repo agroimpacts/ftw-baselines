@@ -66,3 +66,19 @@ Definitions adapted from the local `../evaluation/metric_package/src/field_shape
 snapshot (`evaluation.py`, `ftw_input.py`); this implementation uses raster
 intersection counts rather than transferring source code. Provenance and license
 of the snapshot must be confirmed before any direct code transfer.
+
+## Explicit boundary diagnostics
+
+`ftw_tools.training.metrics.chamfer_statistics` returns threshold-matched and
+reference-best-IoU symmetric Chamfer means, their finite sums/counts, and best-IoU
+reference coverage with its numerator/denominator. Callers must provide positive
+metre pixel spacing, as a scalar or `(row, column)` pair. Matching, connectivity,
+ignored pixels and supplied reference IDs follow the existing instance API.
+Best-IoU permits repeated predictions, requires positive overlap and resolves
+exact ties by the lowest compact prediction ID. Boundary extraction follows the
+FTP interior-EDT < 1.5 pixel rule, including holes and unpadded array-edge behavior.
+Distances are unsquared. Empty boundary sets or no eligible pairs yield NaN;
+unmatched references receive no distance. Pool sums and finite counts before
+division; coverage pools overlapping-reference counts and total reference counts.
+`boundary_chamfer` exposes the distance for two aligned binary masks directly.
+Neither function is automatically enabled by training or changes existing scores.

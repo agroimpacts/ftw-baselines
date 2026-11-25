@@ -10,6 +10,21 @@ from scipy.ndimage import label
 from scipy.optimize import linear_sum_assignment
 from skimage.measure import label as label_values
 
+from ftw_tools.training._boundary_metrics import boundary_chamfer, chamfer_statistics
+
+__all__ = [
+    'FP_DEPENDENT_SCORES',
+    'InstanceStatistics',
+    'boundary_chamfer',
+    'chamfer_statistics',
+    'get_object_level_metrics',
+    'instance_label_matches',
+    'instance_label_statistics',
+    'instance_match_labels',
+    'instance_scores_for_reporting',
+    'instance_statistics',
+]
+
 # Without labeled background, unmatched predictions cannot reliably be called
 # false positives. Keep their counts for diagnostics, not FP-based scoring.
 FP_DEPENDENT_SCORES = ("object_precision", "object_f1", "rq", "pq")

@@ -4,7 +4,7 @@ FTW's current measures for evaluating model instance segmentation performance in
 
 All of these measures depend on an IoU threshold that determines which reference and predicted fields qualify as object matches. IoU is defined as 
 
-$$\operatorname{IoU}(G_i,P_j)=u_{ij}=\frac{n_{ij}}{a_i+b_j-n_{ij}}$$
+$$\mathrm{IoU}(G_i,P_j)=u_{ij}=\frac{n_{ij}}{a_i+b_j-n_{ij}}$$
 
 Where $a_i$ is the area of the *i*th reference field (G), $b_j$ is the area of the *j*th predicted field (P), and $n_{ij}$ the area of intersection between $G_i$ and $P_j$, measured as pixel counts on aligned masks. Under threshold-based object matching (typically, $u_{ij}>0.5$), $M$ is the set of one-to-one matches. 
 
@@ -233,4 +233,3 @@ The following table compares pair-wise correlations between measures calculated 
 | Precision / support          |               0.662 |                 0.657 |
 | Rand split / merge           |               0.031 |                −0.015 |
 | Threshold / best-IoU Chamfer |               0.586 |                 0.639 |
-
